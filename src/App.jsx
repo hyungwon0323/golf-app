@@ -46,18 +46,24 @@ import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc } 
 
 // --- [Firebase Initialization] ---
 let app, auth, db;
+const firebaseConfig = {
+  apiKey: "AIzaSyAKyBw7Ca5Zi9XGEudGkDPh69_W7T1N-lc",
+  authDomain: "zeno-golf.firebaseapp.com",
+  projectId: "zeno-golf",
+  storageBucket: "zeno-golf.firebasestorage.app",
+  messagingSenderId: "1019871498079",
+  appId: "1:1019871498079:web:b081472d8f442bbbebf0ea",
+  measurementId: "G-ZWDRQV93RV"
+};
+
 try {
-  const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-  const firebaseConfig = JSON.parse(firebaseConfigStr);
-  if (Object.keys(firebaseConfig).length > 0) {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  }
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
 } catch (e) {
   console.log('Firebase init skipped or failed', e);
 }
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const appId = "zeno-golf-app";
 
 // --- [커스텀 아이콘: 드라이버 헤드 페이스] ---
 const DriverFaceIcon = ({ size = 14 }) => (

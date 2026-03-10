@@ -32,10 +32,32 @@ import {
   Flag,
   Coffee,
   CloudRain,
-  Mail, // 이메일 아이콘 추가
-  Key, // 인증번호 아이콘 추가
-  LogOut // 로그아웃 아이콘 추가
+  Mail, 
+  Key, 
+  LogOut, 
+  Crosshair,
+  Lock,
+  Target as TargetIcon // 연습 기록 아이콘
 } from 'lucide-react';
+
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc } from 'firebase/firestore'; 
+
+// --- [Firebase Initialization] ---
+let app, auth, db;
+try {
+  const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+  const firebaseConfig = JSON.parse(firebaseConfigStr);
+  if (Object.keys(firebaseConfig).length > 0) {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  }
+} catch (e) {
+  console.log('Firebase init skipped or failed', e);
+}
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 // --- [커스텀 아이콘: 드라이버 헤드 페이스] ---
 const DriverFaceIcon = ({ size = 14 }) => (
@@ -47,24 +69,15 @@ const DriverFaceIcon = ({ size = 14 }) => (
   </svg>
 );
 
-// --- [커스텀 아이콘: 롤로노아 조로 눈 (크고 강렬하게 수정)] ---
+// --- [커스텀 아이콘: 롤로노아 조로 눈] ---
 const ZoroEyesIcon = ({ size = 32, className }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className} strokeLinecap="round" strokeLinejoin="round">
-    {/* 우측 눈썹 (사용자 기준 왼쪽) */}
     <path d="M1 7 L 11 10" strokeWidth="2.5" />
-    {/* 좌측 눈썹 (사용자 기준 오른쪽) */}
     <path d="M23 7 L 13 10" strokeWidth="2.5" />
-    
-    {/* 우측 눈매 (곡선을 주어 눈을 더 크게 트이게 함) */}
     <path d="M1 12 Q 6 9 11 13" strokeWidth="2" />
-    {/* 좌측 눈매 (곡선을 주어 눈을 더 크게 트이게 함) */}
     <path d="M23 12 Q 18 9 13 13" strokeWidth="2" />
-    
-    {/* 양쪽 눈동자 (크기를 1.5에서 2.5로 키움) */}
     <circle cx="6" cy="11.5" r="2.5" fill="currentColor" stroke="none" />
     <circle cx="18" cy="11.5" r="2.5" fill="currentColor" stroke="none" />
-    
-    {/* 조로의 아이덴티티: 왼쪽 눈을 가로지르는 흉터 (사용자 기준 오른쪽) */}
     <path d="M19 3 L 17 21" strokeWidth="1.5" opacity="0.9" />
   </svg>
 );
@@ -74,6 +87,7 @@ const MISS_REASONS = [
   { id: 'hit', label: '타점', icon: <Focus size={14} /> },
   { id: 'face', label: '페이스앵글', icon: <DriverFaceIcon size={14} /> },
   { id: 'path', label: '패스', icon: <MoveRight size={14} /> },
+  { id: 'aim', label: '에임', icon: <Crosshair size={14} /> }, 
   { id: 'routine', label: '루틴', icon: <RefreshCw size={14} /> },
   { id: 'clubSelection', label: '클럽선택', icon: <CheckSquare size={14} /> },
   { id: 'strategy', label: '공략', icon: <Map size={14} /> },
@@ -95,9 +109,13 @@ const generateMockDetailedHoles = () => {
     const girRes = Math.random() > 0.5 ? 'O' : 'X';
     const udRes = Math.random() > 0.5 ? 'O' : 'X';
     
+    const puttsCount = Math.random() > 0.8 ? 3 : Math.random() > 0.4 ? 2 : 1;
     const firstPuttDist = Math.random() > 0.2 ? Math.floor(Math.random() * 40 + 5).toString() : '';
+    const secondPuttDist = puttsCount >= 2 && Math.random() > 0.3 ? Math.floor(Math.random() * 15 + 1).toString() : '';
+
     const puttDetails = Array.from({length: 4}, (_, pIdx) => {
       if (pIdx === 0) return { distance: firstPuttDist, hook: '', slice: '', downhill: '', uphill: '' };
+      if (pIdx === 1) return { distance: secondPuttDist, hook: '', slice: '', downhill: '', uphill: '' };
       return { distance: '', hook: '', slice: '', downhill: '', uphill: '' };
     });
 
@@ -105,55 +123,327 @@ const generateMockDetailedHoles = () => {
       hole: i + 1,
       par: par,
       score: par + Math.floor(Math.random() * 2),
-      putts: Math.random() > 0.8 ? 3 : Math.random() > 0.4 ? 2 : 1,
+      putts: puttsCount,
       firstPuttFt: firstPuttDist, 
       puttDetails: puttDetails,
       drive: driveRes,
-      driveMissReason: driveRes === 'X' ? getMockReasons(6) : [],
+      driveMissReason: driveRes === 'X' ? getMockReasons(7) : [],
       secondShotResult: secondRes,
-      secondShotMissReason: secondRes === 'X' ? getMockReasons(6) : [],
+      secondShotMissReason: secondRes === 'X' ? getMockReasons(7) : [],
       girResult: girRes,
-      girMissReason: girRes === 'X' ? getMockReasons(7) : [],
+      girMissReason: girRes === 'X' ? getMockReasons(8) : [],
       udResult: udRes,
-      udMissReason: udRes === 'X' ? getMockReasons(8) : []
+      udMissReason: udRes === 'X' ? getMockReasons(9) : []
     };
   });
 };
 
 // --- [모의 데이터] ---
 const initialScores = [
-  { id: 1, date: '2026-02-28', course: '용인 CC', total: 95, putts: 38, fairways: 6, type: 'practice', temperature: '12', wind: '한클럽', detailedHoles: generateMockDetailedHoles() },
+  { id: 1, date: '2026-02-28', course: '용인 CC', total: 95, putts: 38, fairways: 6, type: 'practice', temperature: '12', wind: '한클럽', roundReflection: '후반 홀 체력 저하로 샷이 많이 흔들렸다. 특히 드라이버 슬라이스가 심했음.', instructorComment: '체력 훈련과 함께 백스윙 탑에서 급해지지 않도록 템포 조절에 신경 써봅시다!', detailedHoles: generateMockDetailedHoles() },
   { id: 2, date: '2026-03-01', course: '레이크사이드', total: 92, putts: 36, fairways: 8, type: 'practice', temperature: '10', wind: '반클럽', detailedHoles: generateMockDetailedHoles() },
-  { id: 3, date: '2026-03-05', course: '남부 CC', total: 89, putts: 34, fairways: 9, type: 'tournament', tournamentName: '청소년 컵', temperature: '15', wind: '두클럽', detailedHoles: generateMockDetailedHoles() },
+  { id: 3, date: '2026-03-05', course: '남부 CC', total: 89, putts: 34, fairways: 9, type: 'tournament', tournamentName: '청소년 컵', temperature: '15', wind: '두클럽', roundReflection: '그린 스피드 적응을 못해서 3퍼트가 많았다. 숏게임과 퍼팅 연습이 시급함.', detailedHoles: generateMockDetailedHoles() },
   { id: 4, date: '2026-03-07', course: '태광 CC', total: 88, putts: 33, fairways: 10, type: 'tournament', tournamentName: '용인시장배', temperature: '14', wind: '무풍', detailedHoles: generateMockDetailedHoles() },
 ];
 
-export default function GolfStudentApp() {
-  // 로그인 상태 관리 (기본값: false)
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userRole, setUserRole] = useState('student'); // 'student' | 'instructor' 교습가 상태 추가
+// --- [기록 폼 초기화 데이터 생성 함수] ---
+const generateInitialHoles = () => Array.from({ length: 18 }, (_, i) => ({
+  hole: i + 1,
+  par: 4,
+  score: 4,
+  putts: 2,
+  firstPuttFt: '', 
+  puttDetails: Array.from({length: 4}, () => ({ distance: '', hook: '', slice: '', downhill: '', uphill: '' })),
+  teeClub: null,
+  drive: null, 
+  driveMissReason: [], 
+  secondClub: null, 
+  secondShotResult: null, 
+  secondShotMissReason: [], 
+  girClub: null, 
+  girResult: null, 
+  girMissReason: [], 
+  udDist: null, 
+  udClub: null, 
+  udResult: null,
+  udMissReason: [] 
+}));
 
+const generateInitialInfo = () => ({
+  date: new Date().toISOString().split('T')[0],
+  course: '',
+  type: 'practice',
+  tournamentName: '',
+  greenSpeed: '', 
+  temperature: '',
+  wind: '',
+  isRaining: false,
+  precipitation: '',
+  roundReflection: ''
+});
+
+// --- [모의 연습 기록 데이터] ---
+const initialPracticeRecords = [
+  { id: 1, date: '2026-03-08', type: 'long', method: 'block', title: '드라이버 방향성 교정', content: '백스윙 탑에서 크로스오버 되는 느낌을 잡기 위해 노력함. 임팩트 시 클럽 페이스가 열리는 문제를 신경 썼다.', instructorComment: '백스윙 궤도를 영상으로 찍어서 확인해 보는 것이 좋겠습니다. 잘하고 있어요!' },
+  { id: 2, date: '2026-03-09', type: 'short', method: 'random', title: '50m, 30m 어프로치', content: '거리감 맞추기 위주로 연습. 50m는 샌드웨지 3/4 스윙, 30m는 하프 스윙으로 기준을 잡았다. 스핀량은 아직 부족함.' },
+];
+
+export default function GolfStudentApp() {
+  // --- [Firebase Auth & Data States] ---
+  const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+
+  // 기본 상태 관리
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userRole, setUserRole] = useState('student'); // 'student' | 'instructor'
   const [currentTab, setCurrentTab] = useState('dashboard');
-  const [scores, setScores] = useState(initialScores);
+  const [scores, setScores] = useState([]);
+  const [practiceRecords, setPracticeRecords] = useState(initialPracticeRecords); // 연습 기록 상태 추가
   const [isPremium, setIsPremium] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedScore, setSelectedScore] = useState(null); 
   const [analysisContext, setAnalysisContext] = useState(null); 
-  const [showUserMenu, setShowUserMenu] = useState(false); // 학생 로그아웃 메뉴 상태 추가
+  const [showUserMenu, setShowUserMenu] = useState(false); 
   
-  // 로그아웃 핸들러 (confirm 팝업 제거)
-  const handleLogout = () => {
+  // --- [기록 중인 상태 유지 (State Lifting & Edit Mode)] ---
+  const [addScoreStep, setAddScoreStep] = useState(1);
+  const [addScoreInfo, setAddScoreInfo] = useState(generateInitialInfo());
+  const [addScoreHoles, setAddScoreHoles] = useState(generateInitialHoles());
+  const [addScoreCurrentHoleIdx, setAddScoreCurrentHoleIdx] = useState(0);
+  const [editingScoreId, setEditingScoreId] = useState(null);
+
+  const resetAddScoreState = () => {
+    setAddScoreStep(1);
+    setAddScoreInfo(generateInitialInfo());
+    setAddScoreHoles(generateInitialHoles());
+    setAddScoreCurrentHoleIdx(0);
+    setEditingScoreId(null);
+  };
+
+  // 로그아웃 핸들러 
+  const handleLogout = async () => {
     setIsLoggedIn(false);
     setUserRole('student');
     setCurrentTab('dashboard');
+
+    if (user && db) {
+      try {
+        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        await setDoc(stateRef, { isLoggedIn: false, userRole: 'student', currentTab: 'dashboard' }, { merge: true });
+      } catch (e) {
+        console.warn("Logout save error", e);
+      }
+    }
   };
 
-  // 로그인되지 않은 경우 로그인 화면만 렌더링
-  if (!isLoggedIn) {
-    return <LoginView onLoginSuccess={(role) => { setIsLoggedIn(true); setUserRole(role); }} />;
+  // 로그인 성공 핸들러
+  const handleLoginSuccess = async (role) => {
+    setIsLoggedIn(true);
+    setUserRole(role);
+
+    if (user && db) {
+      try {
+        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        await setDoc(stateRef, { isLoggedIn: true, userRole: role }, { merge: true });
+      } catch (e) {
+        console.warn("Login save error", e);
+      }
+    }
+  };
+
+  // 1. Firebase Auth 초기화
+  useEffect(() => {
+    if (!auth) {
+      setIsAuthReady(true);
+      return;
+    }
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch(e) {
+        console.warn("Auth error", e);
+        setIsAuthReady(true);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. 앱 상태 데이터(작성 중이던 데이터 등) 클라우드에서 불러오기
+  useEffect(() => {
+    if (!isAuthReady) return;
+    if (!user || !db) {
+      setScores(initialScores);
+      setIsDataLoaded(true);
+      return;
+    }
+
+    const loadState = async () => {
+      try {
+        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        const docSnap = await getDoc(stateRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.isLoggedIn !== undefined) setIsLoggedIn(data.isLoggedIn);
+          if (data.userRole) setUserRole(data.userRole);
+          if (data.currentTab) setCurrentTab(data.currentTab);
+          if (data.addScoreStep) setAddScoreStep(data.addScoreStep);
+          if (data.addScoreInfo) setAddScoreInfo(data.addScoreInfo);
+          if (data.addScoreHoles) setAddScoreHoles(data.addScoreHoles);
+          if (data.addScoreCurrentHoleIdx !== undefined) setAddScoreCurrentHoleIdx(data.addScoreCurrentHoleIdx);
+          if (data.editingScoreId !== undefined) setEditingScoreId(data.editingScoreId);
+          if (data.isPremium !== undefined) setIsPremium(data.isPremium);
+        }
+      } catch (e) {
+        console.warn("State load error", e);
+      }
+      setIsDataLoaded(true);
+    };
+    loadState();
+  }, [user, isAuthReady]);
+
+  // 3. 앱 상태 변경 시 클라우드 자동 저장 (1.5초 딜레이)
+  useEffect(() => {
+    if (!isDataLoaded || !user || !db) return;
+
+    const saveState = async () => {
+      try {
+        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        const stateToSave = JSON.parse(JSON.stringify({
+          isLoggedIn,
+          userRole,
+          currentTab,
+          addScoreStep,
+          addScoreInfo,
+          addScoreHoles,
+          addScoreCurrentHoleIdx,
+          editingScoreId,
+          isPremium
+        }));
+        await setDoc(stateRef, stateToSave, { merge: true });
+      } catch (e) {
+        console.warn("State save error", e);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      saveState();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isDataLoaded, user]);
+
+  // 4. 완료된 스코어 목록 및 연습 기록 동기화
+  useEffect(() => {
+    if (!isDataLoaded || !user || !db) return;
+    const scoresRef = collection(db, 'artifacts', appId, 'users', user.uid, 'scores');
+    const unsubscribeScores = onSnapshot(scoresRef, (snapshot) => {
+      if (snapshot.empty) {
+        initialScores.forEach(async (score) => {
+          try {
+            const cleanScore = JSON.parse(JSON.stringify(score));
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'scores', cleanScore.id.toString()), cleanScore);
+          } catch(e) {}
+        });
+        setScores(initialScores);
+      } else {
+        const fetchedScores = snapshot.docs.map(d => ({ id: Number(d.id), ...d.data() }));
+        fetchedScores.sort((a,b) => a.id - b.id);
+        setScores(fetchedScores);
+      }
+    }, (error) => console.warn("Scores sync error", error));
+
+    const practiceRef = collection(db, 'artifacts', appId, 'users', user.uid, 'practice');
+    const unsubscribePractice = onSnapshot(practiceRef, (snapshot) => {
+      if (snapshot.empty) {
+        initialPracticeRecords.forEach(async (record) => {
+          try {
+            const cleanRecord = JSON.parse(JSON.stringify(record));
+            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'practice', cleanRecord.id.toString()), cleanRecord);
+          } catch(e) {}
+        });
+        setPracticeRecords(initialPracticeRecords);
+      } else {
+        const fetchedRecords = snapshot.docs.map(d => ({ id: Number(d.id), ...d.data() }));
+        fetchedRecords.sort((a,b) => b.id - a.id); // 최신순 정렬
+        setPracticeRecords(fetchedRecords);
+      }
+    }, (error) => console.warn("Practice sync error", error));
+
+    return () => {
+      unsubscribeScores();
+      unsubscribePractice();
+    };
+  }, [isDataLoaded, user]);
+
+  // 새로운 스코어 저장 및 업데이트 핸들러
+  const handleSaveScore = async (newScore) => {
+    if (user && db) {
+      try {
+        const cleanScore = JSON.parse(JSON.stringify(newScore));
+        const scoreRef = doc(db, 'artifacts', appId, 'users', user.uid, 'scores', cleanScore.id.toString());
+        await setDoc(scoreRef, cleanScore); 
+      } catch(e) { console.warn("Save score error", e); }
+    } else {
+      setScores(prev => {
+        const exists = prev.find(s => s.id === newScore.id);
+        if (exists) return prev.map(s => s.id === newScore.id ? newScore : s);
+        return [...prev, newScore];
+      });
+    }
+  };
+
+  // 새로운 연습 기록 저장 핸들러
+  const handleSavePractice = async (newRecord) => {
+    if (user && db) {
+      try {
+        const cleanRecord = JSON.parse(JSON.stringify(newRecord));
+        const recordRef = doc(db, 'artifacts', appId, 'users', user.uid, 'practice', cleanRecord.id.toString());
+        await setDoc(recordRef, cleanRecord);
+      } catch(e) { console.warn("Save practice error", e); }
+    } else {
+      setPracticeRecords(prev => [newRecord, ...prev]);
+    }
+  };
+
+  // 스코어 삭제 핸들러 
+  const handleDeleteScore = async (scoreId) => {
+    if (window.confirm('이 라운드 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
+      if (user && db) {
+        try {
+          await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'scores', scoreId.toString()));
+        } catch(e) { console.warn("Delete score error", e); }
+      } else {
+        setScores(prev => prev.filter(s => s.id !== scoreId));
+      }
+    }
+  };
+
+  // 로딩 화면
+  if (!isAuthReady || !isDataLoaded) {
+    return (
+      <div className="min-h-screen bg-emerald-600 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+          <div className="text-white font-bold tracking-widest text-sm animate-pulse">데이터를 동기화 중...</div>
+        </div>
+      </div>
+    );
   }
 
-  // 교습가 로그인인 경우 교습가 전용 앱 페이지 렌더링
+  if (!isLoggedIn) {
+    return <LoginView onLoginSuccess={handleLoginSuccess} user={user} auth={auth} db={db} appId={appId} />;
+  }
+
   if (userRole === 'instructor') {
     return <InstructorApp onLogout={handleLogout} />;
   }
@@ -168,10 +458,21 @@ export default function GolfStudentApp() {
                     setSelectedScore(score);
                     setCurrentTab('roundDetail');
                   }} 
+                  onDeleteScore={handleDeleteScore} 
                />;
-      case 'add': return <AddScoreDetailedView setScores={setScores} setCurrentTab={setCurrentTab} />;
+      case 'add': 
+        return <AddScoreDetailedView 
+                 onSaveScore={handleSaveScore} 
+                 setCurrentTab={setCurrentTab}
+                 step={addScoreStep} setStep={setAddScoreStep}
+                 info={addScoreInfo} setInfo={setAddScoreInfo}
+                 holes={addScoreHoles} setHoles={setAddScoreHoles}
+                 currentHoleIdx={addScoreCurrentHoleIdx} setCurrentHoleIdx={setAddScoreCurrentHoleIdx}
+                 editingScoreId={editingScoreId}
+                 onReset={resetAddScoreState}
+               />;
       case 'stats': return <StatsView scores={scores} />;
-      case 'premium': return <PremiumView isPremium={isPremium} setShowPaymentModal={setShowPaymentModal} />;
+      case 'practice': return <PracticeView records={practiceRecords} onSave={handleSavePractice} userRole="student" />; 
       case 'roundDetail': 
         return <RoundDetailView 
                  score={selectedScore} 
@@ -179,6 +480,31 @@ export default function GolfStudentApp() {
                  onAnalyze={(statType, title, category = 'miss') => {
                    setAnalysisContext({ statType, title, category });
                    setCurrentTab(category === 'putting' ? 'puttingAnalysis' : 'missAnalysis');
+                 }}
+                 userRole="student"
+                 onEdit={(scoreToEdit) => {
+                   setEditingScoreId(scoreToEdit.id);
+                   setAddScoreInfo({
+                     date: scoreToEdit.date || generateInitialInfo().date,
+                     course: scoreToEdit.course || '',
+                     type: scoreToEdit.type || 'practice',
+                     tournamentName: scoreToEdit.tournamentName || '',
+                     greenSpeed: scoreToEdit.greenSpeed || '',
+                     temperature: scoreToEdit.temperature || '',
+                     wind: scoreToEdit.wind || '',
+                     isRaining: scoreToEdit.isRaining || false,
+                     precipitation: scoreToEdit.precipitation || '',
+                     roundReflection: scoreToEdit.roundReflection || ''
+                   });
+                   setAddScoreHoles(scoreToEdit.detailedHoles.map(h => ({
+                       ...h,
+                       puttDetails: h.puttDetails && h.puttDetails.length === 4 
+                           ? h.puttDetails 
+                           : Array.from({length: 4}, () => ({ distance: '', hook: '', slice: '', downhill: '', uphill: '' }))
+                   })));
+                   setAddScoreStep(1);
+                   setAddScoreCurrentHoleIdx(0);
+                   setCurrentTab('add');
                  }}
                />;
       case 'missAnalysis': 
@@ -201,6 +527,7 @@ export default function GolfStudentApp() {
                     setSelectedScore(score);
                     setCurrentTab('roundDetail');
                   }} 
+                  onDeleteScore={handleDeleteScore} 
                />;
     }
   };
@@ -257,61 +584,304 @@ export default function GolfStudentApp() {
 
         <nav className="bg-white border-t border-gray-200 fixed bottom-0 w-full max-w-md flex justify-around p-3 pb-safe z-10">
           <NavItem icon={<Home />} label="홈" isActive={currentTab === 'dashboard'} onClick={() => setCurrentTab('dashboard')} />
-          <NavItem icon={<PenTool />} label="기록" isActive={currentTab === 'add'} onClick={() => setCurrentTab('add')} />
+          <NavItem icon={<PenTool />} label="라운드기록" isActive={currentTab === 'add'} onClick={() => setCurrentTab('add')} />
           <NavItem icon={<TrendingUp />} label="분석" isActive={currentTab === 'stats'} onClick={() => setCurrentTab('stats')} />
-          <NavItem icon={<Coffee />} label="후원" isActive={currentTab === 'premium'} onClick={() => setCurrentTab('premium')} />
+          <NavItem icon={<TargetIcon />} label="연습기록" isActive={currentTab === 'practice'} onClick={() => setCurrentTab('practice')} />
         </nav>
+      </div>
+    </div>
+  );
+}
 
-        {showPaymentModal && (
-          <PaymentModal 
-            onClose={() => setShowPaymentModal(false)} 
-            onSuccess={() => {
-              setIsPremium(true);
-              setShowPaymentModal(false);
-            }} 
-          />
+// --- [연습 기록용 개별 카드 컴포넌트 (코멘트 편집 기능 포함)] ---
+function PracticeRecordItem({ record, userRole, onSaveComment }) {
+  const [isEditingComment, setIsEditingComment] = useState(false);
+  const [commentText, setCommentText] = useState(record.instructorComment || '');
+
+  const handleSave = () => {
+    if (onSaveComment) {
+      onSaveComment(record.id, commentText);
+    }
+    setIsEditingComment(false);
+  };
+
+  const getRecordTypeBadge = (type) => {
+    switch (type) {
+      case 'long': return <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold">롱게임</span>;
+      case 'short': return <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold">숏게임</span>;
+      case 'putting': return <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold">퍼팅</span>;
+      default: return null;
+    }
+  };
+
+  const getRecordMethodBadge = (method) => {
+    switch (method) {
+      case 'block': return <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-[10px] font-bold border border-gray-200">블록 연습</span>;
+      case 'random': return <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-[10px] font-bold border border-gray-200">랜덤 연습</span>;
+      case 'routine': return <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-[10px] font-bold border border-gray-200">루틴 연습</span>;
+      case 'game': return <span className="text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-[10px] font-bold border border-gray-200">게임 연습</span>;
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 relative group">
+      <div className="flex items-center gap-2 mb-2">
+        {getRecordTypeBadge(record.type)}
+        {getRecordMethodBadge(record.method)}
+        <span className="text-[10px] text-gray-400 font-medium ml-auto">{record.date}</span>
+      </div>
+      <h3 className="font-bold text-gray-800 mb-2">{record.title}</h3>
+      <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-3 rounded-xl border border-gray-50 mb-3">
+        {record.content}
+      </p>
+
+      {/* 교습가 코멘트 영역 */}
+      {(record.instructorComment || userRole === 'instructor') && (
+        <div className="border-t border-gray-100 pt-3">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+              <User size={12} /> 교습가 피드백
+            </span>
+            {userRole === 'instructor' && !isEditingComment && (
+              <button 
+                onClick={() => setIsEditingComment(true)}
+                className="text-[10px] text-slate-400 hover:text-slate-700 font-bold underline"
+              >
+                {record.instructorComment ? '수정' : '작성'}
+              </button>
+            )}
+          </div>
+          
+          {userRole === 'instructor' && isEditingComment ? (
+            <div className="space-y-2 animate-fadeIn">
+              <textarea
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                placeholder="피드백을 남겨주세요."
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 min-h-[60px] resize-none"
+              />
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setIsEditingComment(false)} className="px-3 py-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 rounded">취소</button>
+                <button onClick={handleSave} className="px-3 py-1.5 text-[10px] font-bold bg-slate-600 text-white rounded shadow-sm hover:bg-slate-700">저장</button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-100 whitespace-pre-wrap leading-relaxed">
+              {record.instructorComment ? record.instructorComment : <span className="italic text-slate-400">아직 피드백이 없습니다.</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- [연습 기록 뷰 컴포넌트] ---
+function PracticeView({ records, onSave, userRole, onSaveComment }) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [newRecord, setNewRecord] = useState({ type: 'long', method: 'block', title: '', content: '' });
+
+  const handleSave = () => {
+    if (!newRecord.title.trim()) {
+      alert('제목을 입력해주세요.');
+      return;
+    }
+    if (!newRecord.content.trim()) {
+      alert('내용을 입력해주세요.');
+      return;
+    }
+
+    const recordToSave = {
+      id: Date.now(),
+      date: new Date().toISOString().split('T')[0],
+      ...newRecord
+    };
+
+    onSave(recordToSave);
+    setIsAdding(false);
+    setNewRecord({ type: 'long', method: 'block', title: '', content: '' });
+  };
+
+  if (isAdding) {
+    return (
+      <div className="p-5 animate-fadeIn">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-800">새 연습 기록</h2>
+          <button onClick={() => setIsAdding(false)} className="p-2 -mr-2 text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-5">
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">연습 종류</label>
+            <div className="flex gap-2">
+              {[
+                { id: 'long', label: '롱게임' },
+                { id: 'short', label: '숏게임' },
+                { id: 'putting', label: '퍼팅' }
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setNewRecord({...newRecord, type: t.id})}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-lg border transition-all ${newRecord.type === t.id ? 'bg-emerald-600 border-emerald-700 text-white shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">연습 방법</label>
+            <div className="flex gap-2">
+              {[
+                { id: 'block', label: '블록' },
+                { id: 'random', label: '랜덤' },
+                { id: 'routine', label: '루틴' },
+                { id: 'game', label: '게임' }
+              ].map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setNewRecord({...newRecord, method: m.id})}
+                  className={`flex-1 py-2.5 text-xs font-bold rounded-lg border transition-all ${newRecord.method === m.id ? 'bg-blue-600 border-blue-700 text-white shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2 ml-1 leading-snug break-keep">
+              * <span className="font-bold text-gray-500">블록</span>: 한 가지 동작/클럽 반복 | <span className="font-bold text-gray-500">랜덤</span>: 클럽/타겟 계속 변경 | <span className="font-bold text-gray-500">루틴</span>: 실제 코스처럼 | <span className="font-bold text-gray-500">게임</span>: 스코어링/실전 감각
+            </p>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">연습 주제 / 제목</label>
+            <input 
+              type="text" 
+              placeholder="예) 드라이버 방향성 교정" 
+              value={newRecord.title}
+              onChange={(e) => setNewRecord({...newRecord, title: e.target.value})}
+              className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">연습 내용 / 깨달은 점</label>
+            <textarea 
+              placeholder="오늘 연습에서 집중한 부분이나 깨달은 느낌을 자유롭게 적어주세요." 
+              value={newRecord.content}
+              onChange={(e) => setNewRecord({...newRecord, content: e.target.value})}
+              className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm min-h-[150px] resize-none"
+            />
+          </div>
+
+          <button 
+            onClick={handleSave}
+            className="w-full bg-emerald-600 text-white font-bold text-lg py-3.5 rounded-xl shadow-md hover:bg-emerald-700 transition-colors mt-2 flex justify-center items-center gap-2"
+          >
+            <Save size={18} /> 기록 저장하기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-5 animate-fadeIn pb-32">
+      <div className="flex justify-between items-end mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-800 mb-1">연습 기록장</h2>
+          <p className="text-xs text-gray-500">매일의 연습 내용과 느낌을 기록하세요.</p>
+        </div>
+        {userRole !== 'instructor' && (
+          <button 
+            onClick={() => setIsAdding(true)}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors flex items-center gap-1.5"
+          >
+            <PenTool size={12} /> 새 기록
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        {records.length === 0 ? (
+          <div className="text-center text-gray-400 py-12 text-sm bg-white rounded-2xl border border-gray-100 border-dashed">
+            아직 작성된 연습 기록이 없습니다.
+          </div>
+        ) : (
+          records.map(record => (
+            <PracticeRecordItem 
+              key={record.id} 
+              record={record} 
+              userRole={userRole} 
+              onSaveComment={onSaveComment} 
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-// --- [새로 추가된 컴포넌트: 로그인 뷰] ---
-function LoginView({ onLoginSuccess }) {
-  const [step, setStep] = useState(1); // 1: 이메일 입력, 2: 인증번호 입력
-  const [role, setRole] = useState('student'); // 'student' | 'instructor' 계정 타입 선택
+// --- [이메일 OTP 연동 로그인 뷰] ---
+function LoginView({ onLoginSuccess, user, auth, db, appId }) {
+  const [role, setRole] = useState('student'); 
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
+  const [step, setStep] = useState(1); 
   const [isLoading, setIsLoading] = useState(false);
 
   const TEST_OTP = '123456';
 
-  const handleSendCode = () => {
+  const handleSendCode = async () => {
     if (!email || !email.includes('@')) {
       alert('유효한 이메일 주소를 입력해주세요.');
       return;
     }
     
     setIsLoading(true);
-    // 이메일 발송 모의 딜레이
-    setTimeout(() => {
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      alert(`[발송 시뮬레이션 성공]\n\n입력하신 이메일(${email})로 인증번호가 발송된 것으로 간주합니다.\n\n아래의 테스트 코드를 입력해주세요:\n\n[ ${TEST_OTP} ]`);
+      
+      setStep(2); 
+    } catch (error) {
+      console.error("OTP 이메일 발송 에러:", error);
+      alert('이메일 발송 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
       setIsLoading(false);
-      setStep(2);
-      alert(`[테스트 모드] 인증번호가 발송되었습니다.\n테스트용 인증번호: ${TEST_OTP}`);
-    }, 1200);
+    }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (otp.length !== 6) {
       alert('6자리 인증번호를 정확히 입력해주세요.');
       return;
     }
-    
+
     setIsLoading(true);
-    setTimeout(() => {
+
+    setTimeout(async () => {
       setIsLoading(false);
+      
       if (otp === TEST_OTP) {
-        onLoginSuccess(role); // 선택된 역할(role)을 메인 컴포넌트로 전달
+        if (db && appId && user) {
+          try {
+            const encodedEmail = email.replace(/[\.\#\$\[\]]/g, '_');
+            const accountRef = doc(db, 'artifacts', appId, 'users', user.uid, 'accounts', encodedEmail);
+            const snap = await getDoc(accountRef);
+            if (!snap.exists()) {
+               await setDoc(accountRef, { email, role, createdAt: Date.now() });
+            }
+          } catch (e) {
+            console.warn('Account save error', e);
+          }
+        }
+        onLoginSuccess(role);
       } else {
         alert('인증번호가 일치하지 않습니다. 다시 확인해주세요.');
       }
@@ -322,7 +892,6 @@ function LoginView({ onLoginSuccess }) {
     <div className="min-h-screen bg-gray-100 flex justify-center font-sans">
       <div className="w-full max-w-md bg-emerald-600 min-h-screen shadow-2xl relative flex flex-col items-center justify-center p-6 text-white">
         
-        {/* 상단 로고 영역 */}
         <div className="flex flex-col items-center mb-10 animate-fadeIn">
           <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mb-4 shadow-inner">
             <ZoroEyesIcon size={50} className="text-white" />
@@ -333,109 +902,92 @@ function LoginView({ onLoginSuccess }) {
           </p>
         </div>
 
-        {/* 로그인 폼 카드 */}
         <div className="w-full bg-white rounded-2xl shadow-xl p-6 text-gray-800 animate-slideUp">
-          {step === 1 ? (
-            <div className="space-y-5 animate-fadeIn">
-              <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">이메일 로그인</h2>
-                <p className="text-xs text-gray-500">계정 이메일을 입력하면 인증코드를 보내드립니다.</p>
-              </div>
+          <div className="space-y-5 animate-fadeIn">
+            <div>
+              <h2 className="text-xl font-bold text-gray-800 mb-1">이메일 로그인</h2>
+              <p className="text-xs text-gray-500">계정 이메일을 입력하면 인증코드를 보내드립니다.</p>
+            </div>
 
-              {/* 추가된 영역: 계정 유형 선택 (학생 vs 교습가) */}
-              <div>
-                <label className="block text-xs font-bold text-gray-600 mb-2">계정 유형</label>
-                <div className="flex gap-3">
-                  <label className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border cursor-pointer transition-all font-bold text-sm ${role === 'student' ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
-                    <input type="radio" value="student" checked={role === 'student'} onChange={() => setRole('student')} className="hidden" />
-                    🏌️ 학생
-                  </label>
-                  <label className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border cursor-pointer transition-all font-bold text-sm ${role === 'instructor' ? 'bg-slate-50 border-slate-500 text-slate-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
-                    <input type="radio" value="instructor" checked={role === 'instructor'} onChange={() => setRole('instructor')} className="hidden" />
-                    🧑‍🏫 교습가
-                  </label>
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-2">계정 유형</label>
+              <div className="flex gap-3">
+                <label className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border cursor-pointer transition-all font-bold text-sm ${role === 'student' ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
+                  <input type="radio" value="student" checked={role === 'student'} onChange={() => setRole('student')} className="hidden" />
+                  🏌️ 학생
+                </label>
+                <label className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border cursor-pointer transition-all font-bold text-sm ${role === 'instructor' ? 'bg-slate-50 border-slate-500 text-slate-700 shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}>
+                  <input type="radio" value="instructor" checked={role === 'instructor'} onChange={() => setRole('instructor')} className="hidden" />
+                  🧑‍🏫 교습가
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-2">이메일 주소</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Mail size={18} className="text-gray-400" />
                 </div>
+                <input 
+                  type="email" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={step === 2}
+                  placeholder="student@example.com" 
+                  className={`w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium transition-all ${step === 2 ? 'bg-gray-100 text-gray-400' : 'bg-gray-50'}`}
+                />
               </div>
+            </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-600 mb-2">이메일 주소</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail size={18} className="text-gray-400" />
-                  </div>
-                  <input 
-                    type="email" 
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="student@example.com" 
-                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium transition-all"
-                  />
-                </div>
-              </div>
-
+            {step === 1 ? (
               <button 
                 onClick={handleSendCode}
                 disabled={isLoading}
-                className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-emerald-700 transition-colors flex justify-center items-center gap-2 disabled:opacity-70"
+                className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-emerald-700 transition-colors flex justify-center items-center gap-2 mt-2 disabled:opacity-70"
               >
                 {isLoading ? (
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                 ) : (
-                  '인증코드 받기'
+                  '인증코드 발송'
                 )}
               </button>
-            </div>
-          ) : (
-            <div className="space-y-5 animate-fadeIn">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <button onClick={() => setStep(1)} className="p-1 -ml-1 text-gray-400 hover:text-gray-600 rounded-full transition-colors">
-                    <ChevronLeft size={20} />
-                  </button>
-                  <h2 className="text-xl font-bold text-gray-800">인증코드 입력</h2>
-                </div>
-                <p className="text-xs text-gray-500 pl-1"><span className="font-bold text-emerald-600">{email}</span>(으)로<br/>발송된 6자리 숫자를 입력해주세요.</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-600 mb-2">인증코드 (6자리)</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Key size={18} className="text-gray-400" />
+            ) : (
+              <div className="space-y-5 animate-slideUp pt-2 border-t border-gray-100">
+                <div>
+                  <div className="flex justify-between items-end mb-2">
+                    <label className="block text-xs font-bold text-gray-600">인증코드 (6자리)</label>
+                    <button onClick={() => setStep(1)} className="text-[10px] font-bold text-emerald-600 underline">이메일 다시 입력</button>
                   </div>
-                  <input 
-                    type="number" 
-                    maxLength={6}
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.slice(0, 6))}
-                    placeholder="123456" 
-                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-black text-emerald-700 tracking-widest text-center text-lg transition-all"
-                  />
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Key size={18} className="text-gray-400" />
+                    </div>
+                    <input 
+                      type="number" 
+                      maxLength={6}
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.slice(0, 6))}
+                      placeholder="123456" 
+                      className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-black text-emerald-700 tracking-widest text-center text-lg transition-all"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <button 
-                onClick={handleVerify}
-                disabled={isLoading}
-                className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-emerald-700 transition-colors flex justify-center items-center gap-2 disabled:opacity-70"
-              >
-                {isLoading ? (
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                ) : (
-                  '로그인 하기'
-                )}
-              </button>
-
-              <div className="text-center pt-2">
                 <button 
-                  onClick={handleSendCode}
-                  className="text-xs font-bold text-gray-400 hover:text-emerald-600 transition-colors underline underline-offset-2"
+                  onClick={handleVerify}
+                  disabled={isLoading}
+                  className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-xl shadow-md hover:bg-emerald-700 transition-colors flex justify-center items-center gap-2 disabled:opacity-70"
                 >
-                  코드를 받지 못하셨나요? 재전송
+                  {isLoading ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  ) : (
+                    '로그인 하기'
+                  )}
                 </button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
         
         <div className="absolute bottom-6 text-[10px] text-emerald-200/50">
@@ -460,7 +1012,106 @@ function NavItem({ icon, label, isActive, onClick }) {
   );
 }
 
-function DashboardView({ scores, isPremium, onScoreClick }) {
+// 스와이프 가능한 리스트 아이템 컴포넌트
+function SwipeableScoreItem({ score, onClick, onDelete }) {
+  const [touchStartX, setTouchStartX] = useState(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const maxSwipe = 80; 
+
+  const handleTouchStart = (e) => {
+    setTouchStartX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e) => {
+    if (touchStartX === null) return;
+    const currentX = e.targetTouches[0].clientX;
+    const diff = touchStartX - currentX;
+
+    if (diff > 0) {
+      setSwipeOffset(Math.min(diff, maxSwipe));
+    } else {
+      setSwipeOffset(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (swipeOffset > maxSwipe / 2) {
+      setSwipeOffset(maxSwipe);
+    } else {
+      setSwipeOffset(0);
+    }
+    setTouchStartX(null);
+  };
+
+  return (
+    <div className="relative border-b border-gray-50 overflow-hidden group">
+      <div className="absolute right-0 top-0 bottom-0 w-[80px] bg-red-500 flex items-center justify-center">
+        <button 
+          onClick={(e) => { e.stopPropagation(); onDelete(score.id); setSwipeOffset(0); }}
+          className="text-white flex flex-col items-center gap-1 w-full h-full justify-center opacity-100 hover:bg-red-600 transition-colors"
+        >
+          <X size={20} />
+          <span className="text-[10px] font-bold">삭제</span>
+        </button>
+      </div>
+
+      <div 
+        className="relative bg-white p-4 flex items-center justify-between cursor-pointer transition-transform duration-200 ease-out sm:group-hover:-translate-x-[80px]"
+        style={{ transform: `translateX(-${swipeOffset}px)` }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={(e) => {
+          if (swipeOffset === 0) onClick(score);
+          else setSwipeOffset(0); 
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="bg-gray-100 p-2 rounded-lg text-gray-500">
+            <Calendar size={18} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-gray-800 text-sm truncate">
+              {score.course}
+              {score.type === 'tournament' && score.tournamentName && (
+                <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded align-middle inline-block">
+                  {score.tournamentName}
+                </span>
+              )}
+            </div>
+            <div className="text-xs text-gray-400 flex items-center gap-2 mt-0.5">
+              <span>{score.date}</span>
+              {score.greenSpeed && <span>• 그린 {score.greenSpeed}m</span>}
+              {score.temperature && <span>• {score.temperature}°C</span>}
+              {score.isRaining && score.precipitation && <span className="text-blue-500 font-medium">• 🌧️ {score.precipitation}mm</span>}
+              {score.wind && <span>• {score.wind}</span>}
+            </div>
+            {/* 학생 메모 프리뷰 */}
+            {score.roundReflection && (
+              <div className="text-[10px] text-emerald-700 mt-1.5 truncate bg-emerald-50/50 px-1.5 py-0.5 rounded border border-emerald-100">
+                 <PenTool size={9} className="inline mr-1 mb-0.5" />
+                 {score.roundReflection}
+              </div>
+            )}
+            {/* 교습가 코멘트 프리뷰 */}
+            {score.instructorComment && (
+              <div className="text-[10px] text-slate-600 mt-1 truncate bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                 <User size={9} className="inline mr-1 mb-0.5" />
+                 {score.instructorComment}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="text-right flex items-center gap-2">
+          <div className="font-bold text-lg text-gray-800">{score.total} <span className="text-xs font-normal text-gray-500">타</span></div>
+          <ChevronRight size={16} className="text-gray-300" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardView({ scores, isPremium, onScoreClick, onDeleteScore }) {
   const practiceScores = scores.filter(s => s.type === 'practice' || !s.type);
   const tournamentScores = scores.filter(s => s.type === 'tournament');
 
@@ -473,7 +1124,6 @@ function DashboardView({ scores, isPremium, onScoreClick }) {
     ? (tournamentScores.reduce((acc, curr) => acc + curr.total, 0) / tournamentCount).toFixed(1) 
     : '-';
 
-  // --- [추가된 그룹별 통계 계산 함수] ---
   const calcGroupStats = (groupScores) => {
     const allHoles = groupScores.flatMap(s => s.detailedHoles || []);
     
@@ -499,7 +1149,6 @@ function DashboardView({ scores, isPremium, onScoreClick }) {
   const pracStats = calcGroupStats(practiceScores);
   const tourStats = calcGroupStats(tournamentScores);
 
-  // 미니 스탯 카드 UI 컴포넌트
   const MiniStatCard = ({ title, pracVal, tourVal, unit, colorClass }) => (
     <div className="bg-white p-3 py-3.5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
       <span className={`text-[11px] font-bold tracking-tight mb-2.5 text-center ${colorClass}`}>{title}</span>
@@ -522,7 +1171,6 @@ function DashboardView({ scores, isPremium, onScoreClick }) {
       <div>
         <h3 className="text-sm font-bold text-gray-500 mb-3 px-1">최근 라운드 요약</h3>
         
-        {/* 기존: 평균 타수 요약 */}
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center">
             <span className="text-gray-500 text-[11px] font-bold mb-1 tracking-tight">연습라운드 평균 타수</span>
@@ -536,65 +1184,54 @@ function DashboardView({ scores, isPremium, onScoreClick }) {
           </div>
         </div>
 
-        {/* 신규: 4가지 주요 통계 (연습/시합 분리형 카드) - 순서 변경됨 */}
         <div className="grid grid-cols-2 gap-3">
-          {/* 왼쪽 위 */}
           <MiniStatCard title="페어웨이 안착률" pracVal={pracStats.fwRate} tourVal={tourStats.fwRate} unit="%" colorClass="text-purple-600" />
-          {/* 오른쪽 위 */}
           <MiniStatCard title="그린적중률(GIR)" pracVal={pracStats.girRate} tourVal={tourStats.girRate} unit="%" colorClass="text-emerald-600" />
-          {/* 왼쪽 아래 */}
           <MiniStatCard title="리커버리 성공률" pracVal={pracStats.udRate} tourVal={tourStats.udRate} unit="%" colorClass="text-orange-500" />
-          {/* 오른쪽 아래 */}
           <MiniStatCard title="평균 퍼팅수" pracVal={pracStats.avgPutts} tourVal={tourStats.avgPutts} unit="" colorClass="text-gray-700" />
         </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b border-gray-50 flex justify-between items-center">
+        <div className="p-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
           <h3 className="font-bold text-gray-800">최근 스코어 리스트</h3>
         </div>
-        <div className="divide-y divide-gray-50">
-          {scores.slice().reverse().map((score) => (
-            <div 
+        <div className="divide-y divide-gray-50 flex flex-col-reverse">
+          {scores.map((score) => (
+            <SwipeableScoreItem 
               key={score.id} 
-              onClick={() => onScoreClick(score)}
-              className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors cursor-pointer active:bg-gray-100"
-            >
-              <div className="flex items-center gap-3">
-                <div className="bg-gray-100 p-2 rounded-lg text-gray-500">
-                  <Calendar size={18} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-gray-800 text-sm truncate">
-                    {score.course}
-                    {score.type === 'tournament' && score.tournamentName && (
-                      <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded align-middle inline-block">
-                        {score.tournamentName}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-400 flex items-center gap-2 mt-0.5">
-                    <span>{score.date}</span>
-                    {score.temperature && <span>• {score.temperature}°C</span>}
-                    {score.isRaining && score.precipitation && <span className="text-blue-500 font-medium">• 🌧️ {score.precipitation}mm</span>}
-                    {score.wind && <span>• {score.wind}</span>}
-                  </div>
-                </div>
-              </div>
-              <div className="text-right flex items-center gap-2">
-                <div className="font-bold text-lg text-gray-800">{score.total} <span className="text-xs font-normal text-gray-500">타</span></div>
-                <ChevronRight size={16} className="text-gray-300" />
-              </div>
-            </div>
+              score={score} 
+              onClick={onScoreClick} 
+              onDelete={onDeleteScore} 
+            />
           ))}
+          {scores.length === 0 && (
+             <div className="p-8 text-center text-gray-400 text-sm">
+                아직 기록된 스코어가 없습니다.
+             </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// --- [새로 추가된 컴포넌트: 라운드 상세 분석 뷰] ---
-function RoundDetailView({ score, onBack, onAnalyze }) {
+function RoundDetailView({ score, onBack, onAnalyze, onEdit, userRole, onSaveInstructorComment }) {
+  const [instructorComment, setInstructorComment] = useState('');
+  const [isEditingComment, setIsEditingComment] = useState(false);
+
+  useEffect(() => {
+    setInstructorComment(score?.instructorComment || '');
+    setIsEditingComment(false);
+  }, [score]);
+
+  const handleSaveComment = () => {
+    if (onSaveInstructorComment) {
+      onSaveInstructorComment(score.id, instructorComment);
+    }
+    setIsEditingComment(false);
+  };
+
   if (!score) return null;
 
   const holes = score.detailedHoles || [];
@@ -606,47 +1243,55 @@ function RoundDetailView({ score, onBack, onAnalyze }) {
     return { tries, successes, rate };
   };
 
-  // 1. 티샷 페어웨이 안착률
   const teeShot = calcRate(h => h.par !== 3 && h.drive !== null, h => h.drive === 'O');
-  // 2. 세컨샷 페어웨이 안착률 (Par 5)
   const secondShot = calcRate(h => h.par === 5 && h.secondShotResult !== null, h => h.secondShotResult === 'O');
-  // 3. 그린적중률 (GIR)
   const gir = calcRate(h => h.girResult !== null, h => h.girResult === 'O');
-  // 4. UP&DOWN 성공률
   const ud = calcRate(h => h.udResult !== null, h => h.udResult === 'O');
+  const bunkerSave = calcRate(h => h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O');
 
-  // 5. 퍼팅 횟수 통계
   const totalPuttsFromHoles = holes.reduce((sum, h) => sum + (h.putts || 0), 0);
   const actualTotalPutts = totalPuttsFromHoles > 0 ? totalPuttsFromHoles : score.putts;
   const avgPutts = holes.length > 0 ? (actualTotalPutts / holes.length).toFixed(1) : (score.putts / 18).toFixed(1);
   const onePutts = holes.filter(h => h.putts === 1).length;
   const threePutts = holes.filter(h => h.putts >= 3).length;
 
-  // 6. 1st 퍼트 평균 거리 계산 (GIR 성공 vs 실패 분리)
   const girFirstPutts = holes.filter(h => h.firstPuttFt && !isNaN(h.firstPuttFt) && h.girResult === 'O');
   const totalGirFirstPuttFt = girFirstPutts.reduce((sum, h) => sum + parseFloat(h.firstPuttFt), 0);
   const avgGirFirstPuttFt = girFirstPutts.length > 0 ? (totalGirFirstPuttFt / girFirstPutts.length).toFixed(1) : '-';
 
-  const recFirstPutts = holes.filter(h => h.firstPuttFt && !isNaN(h.firstPuttFt) && h.girResult === 'X'); // GIR 실패 시 리커버리 상황으로 간주
+  const recFirstPutts = holes.filter(h => h.firstPuttFt && !isNaN(h.firstPuttFt) && h.girResult === 'X'); 
   const totalRecFirstPuttFt = recFirstPutts.reduce((sum, h) => sum + parseFloat(h.firstPuttFt), 0);
   const avgRecFirstPuttFt = recFirstPutts.length > 0 ? (totalRecFirstPuttFt / recFirstPutts.length).toFixed(1) : '-';
 
+  const secondPutts = holes.filter(h => h.putts >= 2 && h.puttDetails?.[1]?.distance && !isNaN(h.puttDetails[1].distance));
+  const totalSecondPuttFt = secondPutts.reduce((sum, h) => sum + parseFloat(h.puttDetails[1].distance), 0);
+  const avgSecondPuttFt = secondPutts.length > 0 ? (totalSecondPuttFt / secondPutts.length).toFixed(1) : '-';
+
   return (
     <div className="p-5 animate-fadeIn pb-24 h-full bg-gray-50">
-      {/* 헤더 영역 */}
       <div className="flex items-center gap-3 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
         <button onClick={onBack} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors">
           <ChevronLeft size={24} />
         </button>
-        <div>
+        <div className="flex-1">
           <h2 className="text-lg font-black text-gray-800 leading-tight">{score.course}</h2>
           <div className="text-xs font-medium text-gray-500 mt-0.5">
             {score.date} • {score.type === 'tournament' ? `시합라운드${score.tournamentName ? ` (${score.tournamentName})` : ''}` : '연습라운드'}
           </div>
         </div>
         <div className="ml-auto text-right">
-          <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Total</div>
-          <div className="text-2xl font-black text-emerald-600">{score.total}</div>
+          <div className="flex items-center justify-end gap-2 mb-0.5">
+             <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Total</div>
+             {userRole === 'student' && (
+               <button 
+                 onClick={() => onEdit && onEdit(score)} 
+                 className="text-gray-400 hover:text-emerald-600 flex items-center gap-1 text-[10px] bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100 shadow-sm active:bg-gray-100"
+               >
+                  <PenTool size={10} /> 수정
+               </button>
+             )}
+          </div>
+          <div className="text-2xl font-black text-emerald-600 leading-none">{score.total}</div>
         </div>
       </div>
 
@@ -656,72 +1301,47 @@ function RoundDetailView({ score, onBack, onAnalyze }) {
       </h3>
 
       <div className="space-y-3">
-        {/* 샷 통계 그룹 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-4">
-          <DetailStatRow 
-            label="티샷 페어웨이 안착률" data={teeShot} color="text-purple-600" bg="bg-purple-50" icon={<Flag size={14}/>} 
-            onClick={() => onAnalyze('drive', '티샷 페어웨이 안착 실패 요인')}
-          />
+          <DetailStatRow label="티샷 페어웨이 안착률" data={teeShot} color="text-purple-600" bg="bg-purple-50" icon={<Flag size={14}/>} onClick={() => onAnalyze('drive', '티샷 페어웨이 안착 실패 요인')} />
           <div className="border-t border-gray-50"></div>
-          <DetailStatRow 
-            label="세컨샷 페어웨이 안착률 (Par5)" data={secondShot} color="text-blue-600" bg="bg-blue-50" icon={<Target size={14}/>} 
-            onClick={() => onAnalyze('secondShot', '세컨샷(Par5) 실패 요인')}
-          />
+          <DetailStatRow label="세컨샷 페어웨이 안착률 (Par5)" data={secondShot} color="text-blue-600" bg="bg-blue-50" icon={<Target size={14}/>} onClick={() => onAnalyze('secondShot', '세컨샷(Par5) 실패 요인')} />
           <div className="border-t border-gray-50"></div>
-          <DetailStatRow 
-            label="그린적중률 (GIR)" data={gir} color="text-emerald-600" bg="bg-emerald-50" icon={<CircleDot size={14}/>} 
-            onClick={() => onAnalyze('gir', '그린적중률(GIR) 실패 요인')}
-          />
+          <DetailStatRow label="그린적중률 (GIR)" data={gir} color="text-emerald-600" bg="bg-emerald-50" icon={<CircleDot size={14}/>} onClick={() => onAnalyze('gir', '그린적중률(GIR) 실패 요인')} />
           <div className="border-t border-gray-50"></div>
-          <DetailStatRow 
-            label="UP&DOWN 성공률" data={ud} color="text-orange-500" bg="bg-orange-50" icon={<RefreshCw size={14}/>} 
-            onClick={() => onAnalyze('ud', 'UP&DOWN 실패 요인')}
-          />
+          <DetailStatRow label="UP&DOWN 성공률" data={ud} color="text-orange-500" bg="bg-orange-50" icon={<RefreshCw size={14}/>} onClick={() => onAnalyze('ud', 'UP&DOWN 실패 요인')} />
+          <div className="border-t border-gray-50"></div>
+          <DetailStatRow label="벙커 세이브율" data={bunkerSave} color="text-yellow-600" bg="bg-yellow-50" icon={<Mountain size={14}/>} onClick={() => onAnalyze('bunkerSave', '벙커 세이브 실패 요인')} />
         </div>
 
-        {/* 퍼팅 통계 그룹 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Putting Stats</h4>
-          
           <div className="space-y-3">
-            {/* 거리 통계 (2열 분할) */}
-            <div className="grid grid-cols-2 gap-3">
-              <div 
-                onClick={() => onAnalyze('girFirstPuttDist', 'GIR 적중시 1st 퍼트 상세', 'putting')}
-                className="flex flex-col items-center justify-center p-3 bg-blue-50 rounded-xl border border-blue-100 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-colors relative group"
-              >
-                <span className="text-[10px] font-bold text-blue-600 mb-1">GIR시 1st 평균거리</span>
-                <span className="text-xl font-black text-blue-700">{avgGirFirstPuttFt}<span className="text-xs font-normal ml-0.5">ft</span></span>
-                <ChevronRight size={14} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-blue-300 group-hover:text-blue-500" />
+            <div className="grid grid-cols-3 gap-2">
+              <div onClick={() => onAnalyze('girFirstPuttDist', 'GIR 적중시 1st 퍼트 상세', 'putting')} className="flex flex-col items-center justify-center p-2 bg-blue-50 rounded-xl border border-blue-100 cursor-pointer hover:bg-blue-100 active:bg-blue-200 transition-colors relative group">
+                <span className="text-[9px] font-bold text-blue-600 mb-1 whitespace-nowrap">GIR 1st 평균</span>
+                <span className="text-lg font-black text-blue-700">{avgGirFirstPuttFt}<span className="text-[10px] font-normal ml-0.5">ft</span></span>
               </div>
-              <div 
-                onClick={() => onAnalyze('recFirstPuttDist', '리커버리시 1st 퍼트 상세', 'putting')}
-                className="flex flex-col items-center justify-center p-3 bg-orange-50 rounded-xl border border-orange-100 cursor-pointer hover:bg-orange-100 active:bg-orange-200 transition-colors relative group"
-              >
-                <span className="text-[10px] font-bold text-orange-600 mb-1">리커버리시 1st 평균거리</span>
-                <span className="text-xl font-black text-orange-700">{avgRecFirstPuttFt}<span className="text-xs font-normal ml-0.5">ft</span></span>
-                <ChevronRight size={14} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-orange-300 group-hover:text-orange-500" />
+              <div onClick={() => onAnalyze('recFirstPuttDist', '리커버리시 1st 퍼트 상세', 'putting')} className="flex flex-col items-center justify-center p-2 bg-orange-50 rounded-xl border border-orange-100 cursor-pointer hover:bg-orange-100 active:bg-orange-200 transition-colors relative group">
+                <span className="text-[9px] font-bold text-orange-600 mb-1 whitespace-nowrap">리커버리 1st 평균</span>
+                <span className="text-lg font-black text-orange-700">{avgRecFirstPuttFt}<span className="text-[10px] font-normal ml-0.5">ft</span></span>
+              </div>
+              <div onClick={() => onAnalyze('secondPuttDist', '2nd 퍼트 평균거리 상세', 'putting')} className="flex flex-col items-center justify-center p-2 bg-violet-50 rounded-xl border border-violet-100 cursor-pointer hover:bg-violet-100 active:bg-violet-200 transition-colors relative group">
+                <span className="text-[9px] font-bold text-violet-600 mb-1 whitespace-nowrap">2nd 평균거리</span>
+                <span className="text-lg font-black text-violet-700">{avgSecondPuttFt}<span className="text-[10px] font-normal ml-0.5">ft</span></span>
               </div>
             </div>
 
-            {/* 횟수 통계 (3열 분할) */}
             <div className="grid grid-cols-3 gap-3">
               <div className="flex flex-col items-center justify-center p-3 bg-gray-50 rounded-xl border border-gray-100">
                 <span className="text-[10px] font-bold text-gray-500 mb-1">평균 퍼팅수</span>
                 <span className="text-xl font-black text-gray-800">{avgPutts}</span>
               </div>
-              <div 
-                onClick={() => onAnalyze('onePutt', '1퍼팅 상세 기록', 'putting')}
-                className="flex flex-col items-center justify-center p-3 bg-emerald-50 rounded-xl border border-emerald-100 cursor-pointer hover:bg-emerald-100 active:bg-emerald-200 transition-colors relative group"
-              >
+              <div onClick={() => onAnalyze('onePutt', '1퍼팅 상세 기록', 'putting')} className="flex flex-col items-center justify-center p-3 bg-emerald-50 rounded-xl border border-emerald-100 cursor-pointer hover:bg-emerald-100 active:bg-emerald-200 transition-colors relative group">
                 <span className="text-[10px] font-bold text-emerald-600 mb-1">1퍼팅</span>
                 <span className="text-xl font-black text-emerald-700">{onePutts}<span className="text-xs font-normal ml-0.5">회</span></span>
                 <ChevronRight size={14} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-emerald-300 group-hover:text-emerald-500" />
               </div>
-              <div 
-                onClick={() => onAnalyze('threePutt', '3퍼팅 이상 상세 기록', 'putting')}
-                className="flex flex-col items-center justify-center p-3 bg-red-50 rounded-xl border border-red-100 cursor-pointer hover:bg-red-100 active:bg-red-200 transition-colors relative group"
-              >
+              <div onClick={() => onAnalyze('threePutt', '3퍼팅 이상 상세 기록', 'putting')} className="flex flex-col items-center justify-center p-3 bg-red-50 rounded-xl border border-red-100 cursor-pointer hover:bg-red-100 active:bg-red-200 transition-colors relative group">
                 <span className="text-[10px] font-bold text-red-600 mb-1">3퍼팅 이상</span>
                 <span className="text-xl font-black text-red-700">{threePutts}<span className="text-xs font-normal ml-0.5">회</span></span>
                 <ChevronRight size={14} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-red-300 group-hover:text-red-500" />
@@ -729,6 +1349,54 @@ function RoundDetailView({ score, onBack, onAnalyze }) {
             </div>
           </div>
         </div>
+
+        {score.roundReflection && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mt-2">
+            <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+              <PenTool size={16} className="text-emerald-500" />
+              오늘 라운드 아쉬운 점
+            </h3>
+            <div className="text-sm text-gray-600 bg-gray-50 p-4 rounded-xl whitespace-pre-wrap leading-relaxed border border-gray-100 shadow-inner">
+              {score.roundReflection}
+            </div>
+          </div>
+        )}
+
+        {/* 교습가 피드백 영역 */}
+        {(score.instructorComment || userRole === 'instructor') && (
+          <div className="bg-slate-50 rounded-2xl shadow-sm border border-slate-200 p-5 mt-2">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <User size={16} className="text-slate-500" />
+                교습가 코멘트
+              </h3>
+              {userRole === 'instructor' && !isEditingComment && (
+                <button onClick={() => setIsEditingComment(true)} className="text-xs font-bold text-slate-500 hover:text-slate-800 underline px-1">
+                  {score.instructorComment ? '수정' : '작성'}
+                </button>
+              )}
+            </div>
+
+            {userRole === 'instructor' && isEditingComment ? (
+              <div className="space-y-3 animate-fadeIn">
+                <textarea
+                  value={instructorComment}
+                  onChange={(e) => setInstructorComment(e.target.value)}
+                  placeholder="학생의 라운드에 대한 피드백을 남겨주세요."
+                  className="w-full bg-white border border-slate-300 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500 min-h-[80px] resize-none shadow-sm"
+                />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setIsEditingComment(false)} className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-200 rounded-lg font-bold transition-colors">취소</button>
+                  <button onClick={handleSaveComment} className="px-4 py-2 text-xs bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors shadow-sm">저장</button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-700 bg-white p-4 rounded-xl whitespace-pre-wrap leading-relaxed border border-slate-100 shadow-sm">
+                {score.instructorComment ? score.instructorComment : <span className="text-slate-400 italic">아직 코멘트가 없습니다.</span>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -749,9 +1417,7 @@ function DetailStatRow({ label, data, color, bg, icon, onClick }) {
       <div className="text-right flex items-center gap-2">
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-400 font-medium">{data.successes} / {data.tries}</span>
-          <span className={`text-lg font-black w-10 text-right ${color}`}>{data.rate}%</span>
         </div>
-        {onClick && <ChevronRight size={16} className="text-gray-300" />}
       </div>
     </div>
   );
@@ -764,25 +1430,13 @@ function MissAnalysisView({ score, context, onBack }) {
   const reasonCounts = {};
   let totalMissHoles = 0;
 
-  // 실패(X)로 기록된 전체 홀 수를 먼저 구합니다.
-  const resultKeyMap = {
-    'drive': 'drive',
-    'secondShot': 'secondShotResult',
-    'gir': 'girResult',
-    'ud': 'udResult'
-  };
-  
-  const reasonKeyMap = {
-    'drive': 'driveMissReason',
-    'secondShot': 'secondShotMissReason',
-    'gir': 'girMissReason',
-    'ud': 'udMissReason'
-  };
-  
+  const resultKeyMap = { 'drive': 'drive', 'secondShot': 'secondShotResult', 'gir': 'girResult', 'ud': 'udResult', 'bunkerSave': 'udResult' };
+  const reasonKeyMap = { 'drive': 'driveMissReason', 'secondShot': 'secondShotMissReason', 'gir': 'girMissReason', 'ud': 'udMissReason', 'bunkerSave': 'udMissReason' };
   const resultKey = resultKeyMap[context.statType];
   const reasonKey = reasonKeyMap[context.statType];
 
   holes.forEach(h => {
+    if (context.statType === 'bunkerSave' && h.udDist !== 'bunker_25') return;
     if (h[resultKey] === 'X') {
       totalMissHoles++;
       if (h[reasonKey] && h[reasonKey].length > 0) {
@@ -794,17 +1448,13 @@ function MissAnalysisView({ score, context, onBack }) {
   });
 
   const sortedReasons = Object.entries(reasonCounts)
-    .map(([id, count]) => {
-      const reasonObj = MISS_REASONS.find(mr => mr.id === id);
-      return { ...reasonObj, count };
-    })
+    .map(([id, count]) => ({ ...MISS_REASONS.find(mr => mr.id === id), count }))
     .sort((a, b) => b.count - a.count);
 
   const maxCount = sortedReasons.length > 0 ? sortedReasons[0].count : 0;
 
   return (
     <div className="p-5 animate-fadeIn pb-24 h-full bg-gray-50">
-      {/* 헤더 영역 */}
       <div className="flex items-center gap-3 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
         <button onClick={onBack} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors">
           <ChevronLeft size={24} />
@@ -814,14 +1464,11 @@ function MissAnalysisView({ score, context, onBack }) {
           <div className="text-xs font-medium text-gray-500 mt-0.5">{score.course} • 총 {totalMissHoles}회 실패</div>
         </div>
       </div>
-
-      {/* 차트 영역 */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
         <h3 className="text-sm font-bold text-gray-800 mb-5 flex items-center gap-2">
           <Activity size={16} className="text-emerald-500" />
           요인별 분석 <span className="text-[10px] font-normal text-gray-400 ml-auto">(복수 선택 포함)</span>
         </h3>
-        
         {sortedReasons.length === 0 ? (
           <div className="text-center text-gray-400 py-10 text-sm">기록된 실패 요인이 없습니다.</div>
         ) : (
@@ -830,7 +1477,6 @@ function MissAnalysisView({ score, context, onBack }) {
               const percentage = totalMissHoles > 0 ? Math.round((reason.count / totalMissHoles) * 100) : 0;
               const barWidth = maxCount > 0 ? (reason.count / maxCount) * 100 : 0;
               const barColor = idx === 0 ? 'bg-red-500' : idx === 1 ? 'bg-orange-400' : 'bg-emerald-400';
-              
               return (
                 <div key={reason.id} className="group">
                   <div className="flex justify-between items-end mb-1.5">
@@ -865,7 +1511,10 @@ function PuttingAnalysisView({ score, context, onBack }) {
     emptyMessage = "GIR 적중 후 기록된 1st 퍼트 거리가 없습니다.";
   } else if (context.statType === 'recFirstPuttDist') {
     displayHoles = holes.filter(h => h.firstPuttFt && !isNaN(h.firstPuttFt) && h.girResult === 'X');
-    emptyMessage = "리커버리 시도 후 기록된 1st 퍼트 거리가 없습니다.";
+    emptyMessage = "리커버 시도 후 기록된 1st 퍼트 거리가 없습니다.";
+  } else if (context.statType === 'secondPuttDist') {
+    displayHoles = holes.filter(h => h.putts >= 2 && h.puttDetails?.[1]?.distance && !isNaN(h.puttDetails[1].distance));
+    emptyMessage = "기록된 2nd 퍼트 거리가 없습니다.";
   } else if (context.statType === 'onePutt') {
     displayHoles = holes.filter(h => h.putts === 1);
     emptyMessage = "1퍼팅 기록이 없습니다.";
@@ -874,11 +1523,10 @@ function PuttingAnalysisView({ score, context, onBack }) {
     emptyMessage = "3퍼팅 이상 기록이 없습니다.";
   }
 
-  const isDistanceStat = context.statType.includes('FirstPuttDist');
+  const isDistanceStat = context.statType.includes('PuttDist');
 
   return (
     <div className="p-5 animate-fadeIn pb-24 h-full bg-gray-50">
-      {/* 헤더 영역 */}
       <div className="flex items-center gap-3 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
         <button onClick={onBack} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors">
           <ChevronLeft size={24} />
@@ -888,8 +1536,6 @@ function PuttingAnalysisView({ score, context, onBack }) {
           <div className="text-xs font-medium text-gray-500 mt-0.5">{score.course} • 총 {displayHoles.length}홀</div>
         </div>
       </div>
-
-      {/* 리스트 영역 */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
         {displayHoles.length === 0 ? (
           <div className="text-center text-gray-400 py-10 text-sm flex flex-col items-center justify-center">
@@ -904,6 +1550,7 @@ function PuttingAnalysisView({ score, context, onBack }) {
                   <div className={`w-11 h-11 rounded-full flex items-center justify-center font-black text-lg border-2
                     ${context.statType === 'girFirstPuttDist' ? 'bg-blue-50 text-blue-700 border-blue-100' : 
                       context.statType === 'recFirstPuttDist' ? 'bg-orange-50 text-orange-700 border-orange-100' : 
+                      context.statType === 'secondPuttDist' ? 'bg-violet-50 text-violet-700 border-violet-100' :
                       context.statType === 'onePutt' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
                       'bg-red-50 text-red-700 border-red-100'}`}>
                     {h.hole}
@@ -916,8 +1563,18 @@ function PuttingAnalysisView({ score, context, onBack }) {
                 <div className="text-right">
                   {isDistanceStat ? (
                     <div>
-                      <span className={`text-2xl font-black ${context.statType === 'girFirstPuttDist' ? 'text-blue-600' : 'text-orange-600'}`}>{h.firstPuttFt}</span>
-                      <span className={`text-xs font-bold ${context.statType === 'girFirstPuttDist' ? 'text-blue-400' : 'text-orange-400'} ml-1`}>ft</span>
+                      <span className={`text-2xl font-black ${
+                        context.statType === 'girFirstPuttDist' ? 'text-blue-600' : 
+                        context.statType === 'recFirstPuttDist' ? 'text-orange-600' : 
+                        'text-violet-600'
+                      }`}>
+                        {context.statType === 'secondPuttDist' ? h.puttDetails[1].distance : h.firstPuttFt}
+                      </span>
+                      <span className={`text-xs font-bold ${
+                        context.statType === 'girFirstPuttDist' ? 'text-blue-400' : 
+                        context.statType === 'recFirstPuttDist' ? 'text-orange-400' : 
+                        'text-violet-400'
+                      } ml-1`}>ft</span>
                     </div>
                   ) : (
                     <div>
@@ -927,10 +1584,13 @@ function PuttingAnalysisView({ score, context, onBack }) {
                       <span className="text-xs font-bold text-gray-400 ml-1">퍼트</span>
                     </div>
                   )}
+                  {context.statType === 'secondPuttDist' && h.firstPuttFt && (
+                     <div className="text-[11px] font-medium text-gray-400 mt-0.5">1st 퍼트: <span className="font-bold text-gray-600">{h.firstPuttFt}ft</span></div>
+                  )}
                   {!isDistanceStat && h.firstPuttFt && (
                      <div className="text-[11px] font-medium text-gray-400 mt-0.5">1st 퍼트 거리: <span className="font-bold text-gray-600">{h.firstPuttFt}ft</span></div>
                   )}
-                  {isDistanceStat && (
+                  {isDistanceStat && context.statType !== 'secondPuttDist' && (
                      <div className="text-[11px] font-medium text-gray-400 mt-0.5">결과: <span className="font-bold text-gray-600">{h.putts}퍼트</span></div>
                   )}
                 </div>
@@ -943,43 +1603,15 @@ function PuttingAnalysisView({ score, context, onBack }) {
   );
 }
 
-function AddScoreDetailedView({ setScores, setCurrentTab }) {
-  const [step, setStep] = useState(1); 
-  
-  const [info, setInfo] = useState({
-    date: new Date().toISOString().split('T')[0],
-    course: '',
-    type: 'practice',
-    tournamentName: '',
-    temperature: '',
-    wind: '',
-    isRaining: false,
-    precipitation: ''
-  });
-
-  const [holes, setHoles] = useState(Array.from({ length: 18 }, (_, i) => ({
-    hole: i + 1,
-    par: 4,
-    score: 4,
-    putts: 2,
-    firstPuttFt: '', 
-    puttDetails: Array.from({length: 4}, () => ({ distance: '', hook: '', slice: '', downhill: '', uphill: '' })),
-    teeClub: null,
-    drive: null, 
-    driveMissReason: [], 
-    secondClub: null, 
-    secondShotResult: null, 
-    secondShotMissReason: [], 
-    girClub: null, 
-    girResult: null, 
-    girMissReason: [], 
-    udDist: null, 
-    udClub: null, 
-    udResult: null,
-    udMissReason: [] 
-  })));
-
-  const [currentHoleIdx, setCurrentHoleIdx] = useState(0);
+function AddScoreDetailedView({ 
+  onSaveScore, setCurrentTab,
+  step, setStep,
+  info, setInfo,
+  holes, setHoles,
+  currentHoleIdx, setCurrentHoleIdx,
+  editingScoreId,
+  onReset
+}) {
   const curHole = holes[currentHoleIdx];
 
   const updateCurHole = (key, value) => {
@@ -994,7 +1626,6 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
     setHoles(newHoles);
   }
 
-  // 각 차수별 퍼팅 세부 기록 업데이트 함수
   const updatePuttDetail = (puttIndex, field, value) => {
     if (value !== '' && Number(value) < 0) return;
 
@@ -1006,7 +1637,6 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
     
     newDetails[puttIndex] = { ...newDetails[puttIndex], [field]: value };
     
-    // 1st putt 거리 입력 시 기존 firstPuttFt와 동기화 (기존 통계 호환용)
     if (puttIndex === 0 && field === 'distance') {
       newHoles[currentHoleIdx] = { ...currentHole, puttDetails: newDetails, firstPuttFt: value };
     } else {
@@ -1031,7 +1661,7 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
     return { totalScore, totalPutts, totalFairways };
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!info.course) {
       alert('골프장 이름을 입력해주세요.');
       setStep(1);
@@ -1046,23 +1676,30 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
     const { totalScore, totalPutts, totalFairways } = calculateTotals();
     
     const newScore = {
-      id: Date.now(),
+      id: editingScoreId || Date.now(), 
       date: info.date,
       course: info.course,
       type: info.type,
-      tournamentName: info.type === 'tournament' ? info.tournamentName : undefined,
+      tournamentName: info.type === 'tournament' ? info.tournamentName : null,
+      greenSpeed: info.greenSpeed,
       temperature: info.temperature,
       wind: info.wind,
       isRaining: info.isRaining,
       precipitation: info.precipitation,
+      roundReflection: info.roundReflection,
       total: totalScore,
       putts: totalPutts,
       fairways: totalFairways,
       detailedHoles: holes 
     };
 
-    setScores(prev => [...prev, newScore]);
-    alert('스코어와 상세 통계가 성공적으로 저장되었습니다!');
+    if (onSaveScore) {
+      await onSaveScore(newScore);
+    }
+    
+    alert(editingScoreId ? '라운드 기록이 성공적으로 수정되었습니다!' : '새로운 스코어가 성공적으로 저장되었습니다!');
+    
+    onReset(); 
     setCurrentTab('dashboard');
   };
 
@@ -1096,7 +1733,19 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
 
     return (
       <div className="p-5 animate-fadeIn">
-        <h2 className="text-xl font-bold text-gray-800 mb-6">라운드 정보 입력</h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-gray-800">
+            {editingScoreId ? '라운드 기록 수정' : '라운드 정보 입력'}
+          </h2>
+          <button 
+            onClick={onReset} 
+            className="text-[11px] font-bold text-gray-400 bg-white px-3 py-1.5 rounded-lg border border-gray-200 hover:text-emerald-600 hover:bg-gray-50 transition-colors shadow-sm"
+          >
+            <RefreshCw size={12} className="inline mr-1 mb-0.5" /> 
+            새로 작성 (초기화)
+          </button>
+        </div>
+
         <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 space-y-5">
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-2">라운드 종류</label>
@@ -1122,9 +1771,32 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
           {info.type === 'tournament' && (
             <div className="animate-fadeIn">
               <label className="block text-sm font-bold text-gray-700 mb-2">시합 이름</label>
-              <input type="text" placeholder="예) 전국 청소년 골프대회" value={info.tournamentName} onChange={e => setInfo({...info, tournamentName: e.target.value})} className="w-full p-3 bg-emerald-50/30 border border-emerald-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium" />
+              <input type="text" placeholder="예) 전국 청소년 골프대회" value={info.tournamentName || ''} onChange={e => setInfo({...info, tournamentName: e.target.value})} className="w-full p-3 bg-emerald-50/30 border border-emerald-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium" />
             </div>
           )}
+
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">그린 스피드 (m)</label>
+            <div className="flex gap-2">
+              {['2.3', '2.5', '2.7', '3.0'].map(speed => (
+                <button
+                  key={speed}
+                  onClick={() => setInfo({...info, greenSpeed: info.greenSpeed === speed ? '' : speed})}
+                  className={`flex-1 py-2.5 text-[13px] font-bold rounded-lg border transition-all ${info.greenSpeed === speed ? 'bg-emerald-600 border-emerald-700 text-white shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                >
+                  {speed}m
+                </button>
+              ))}
+              <input
+                type="number"
+                step="0.1"
+                value={info.greenSpeed}
+                onChange={e => setInfo({...info, greenSpeed: e.target.value})}
+                placeholder="직접입력"
+                className="flex-1 w-full text-center border border-gray-200 rounded-lg text-[13px] font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-gray-50"
+              />
+            </div>
+          </div>
 
           <hr className="border-gray-100" />
 
@@ -1209,7 +1881,6 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
       { id: '2I', label: '2I' }, { id: '3I', label: '3I' }, { id: '4I', label: '4I' }
     ];
 
-    // Par 5 세컨샷 클럽 그룹
     const secondClubGroups = [
       { title: 'Woods', clubs: ['3w', '4w', '5w'] },
       { title: 'Hybrids', clubs: ['2h', '3h', '4h', '5h'] },
@@ -1223,21 +1894,17 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
       { title: 'Wedges', clubs: ['50°', '52°', '54°', '56°', '58°', '60°'] }
     ];
 
-    // 글로벌 MISS_REASONS 배열에서 각각 필요한 만큼 잘라서 사용합니다.
-    const driveMissReasons = MISS_REASONS.slice(0, 6);
-    const girMissReasons = MISS_REASONS.slice(0, 7);
-    const udMissReasons = MISS_REASONS; // 8개 전체 사용
+    const driveMissReasons = MISS_REASONS.slice(0, 7);
+    const girMissReasons = MISS_REASONS.slice(0, 8);
+    const udMissReasons = MISS_REASONS; 
 
-    // 리커버리 사용 클럽 리스트
     const udClubs = ['7i', '8i', '9i', 'pw', '50°', '52°', '54°', '56°', '58°', '60°'];
     const bunkerClubs = ['9i', 'pw', '50°', '52°', '54°', '56°', '58°', '60°'];
 
-    // 리커버리 거리/상황 변경 처리 함수 (벙커 선택 시 유효하지 않은 클럽 리셋)
     const handleUdDistChange = (dist) => {
       const newDist = curHole.udDist === dist ? null : dist;
       let newClub = curHole.udClub;
       
-      // 벙커 선택 시 기존에 선택된 클럽이 벙커용 클럽 목록에 없다면 초기화
       if (newDist === 'bunker_25' && newClub && !bunkerClubs.includes(newClub)) {
          newClub = null;
       }
@@ -1247,22 +1914,20 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
       setHoles(newHoles);
     };
 
-    // 스코어에 따른 기분 이모티콘 결정 함수
     const getScoreEmoji = (score, par) => {
       const diff = score - par;
-      if (diff >= 1) return ' 😭'; // 보기 이상
-      if (diff === 0) return ' 🙂'; // 파
-      if (diff === -1) return ' 😄'; // 버디
-      if (diff <= -2) return ' 🤩'; // 이글 이상
+      if (diff >= 1) return ' 😭'; 
+      if (diff === 0) return ' 🙂'; 
+      if (diff === -1) return ' 😄'; 
+      if (diff <= -2) return ' 🤩'; 
       return '';
     };
 
-    // 퍼트 수에 따른 기분 이모티콘 결정 함수
     const getPuttEmoji = (p) => {
       if (p >= 3) return ' 😭';
       if (p === 2) return ' 🙂';
       if (p === 1) return ' 😄';
-      if (p === 0) return ' 🤩'; // 칩인 등
+      if (p === 0) return ' 🤩'; 
       return '';
     };
 
@@ -1634,6 +2299,21 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
                 </div>
               )}
 
+              {currentHoleIdx === 17 && (
+                <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 mt-4 animate-slideUp">
+                  <label className="block text-sm font-black text-emerald-800 mb-3 flex items-center gap-2">
+                    <PenTool size={16} className="text-emerald-600" />
+                    오늘 라운드 아쉬운 점 (총평)
+                  </label>
+                  <textarea
+                    value={info.roundReflection || ''}
+                    onChange={(e) => setInfo({...info, roundReflection: e.target.value})}
+                    placeholder="오늘 라운드에서 아쉬웠던 점이나 보완해야 할 부분을 자유롭게 적어주세요."
+                    className="w-full bg-white border border-emerald-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 min-h-[100px] resize-none shadow-sm"
+                  />
+                </div>
+              )}
+
             </div>
           </div>
 
@@ -1686,8 +2366,9 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
               <div className="text-3xl font-black">{totalScore}</div>
             </div>
             <div className="text-right">
-               <div className="text-xs text-gray-400">Weather Info</div>
-               <div className="text-sm font-bold">
+               <div className="text-xs text-gray-400">Environment Info</div>
+               <div className="text-sm font-bold text-gray-200">
+                 {info.greenSpeed ? `그린 ${info.greenSpeed}m / ` : ''}
                  {info.temperature ? `${info.temperature}°C` : '-'} / {info.wind || '-'}
                  {info.isRaining && info.precipitation ? ` / 🌧️ ${info.precipitation}mm` : ''}
                </div>
@@ -1722,7 +2403,7 @@ function AddScoreDetailedView({ setScores, setCurrentTab }) {
         </div>
 
         <button onClick={handleSave} className="w-full bg-emerald-600 text-white font-bold text-lg py-4 rounded-xl shadow-lg hover:bg-emerald-700 transition-colors flex justify-center items-center gap-2">
-          <Save size={20} /> 최종 기록 저장하기
+          <Save size={20} /> {editingScoreId ? '수정된 기록 저장하기' : '최종 기록 저장하기'}
         </button>
       </div>
     );
@@ -1773,18 +2454,21 @@ function StatRow({ label, stats, color }) {
 
 function StatsView({ scores }) {
   const [filterType, setFilterType] = useState('all');
-  const [selectedMetrics, setSelectedMetrics] = useState(['gir']); // 다중 선택 배열로 변경
+  const [selectedMetrics, setSelectedMetrics] = useState(['gir']);
   const [selectedRoundIds, setSelectedRoundIds] = useState([]);
   const [isRoundListExpanded, setIsRoundListExpanded] = useState(false);
+  const [activeChartIdx, setActiveChartIdx] = useState(null); 
 
   const METRICS = [
     { id: 'teeShot', label: '티샷 페어웨이 안착률', unit: '%', strokeHex: '#9333ea', bgClass: 'bg-purple-100', textClass: 'text-purple-700', borderClass: 'border-purple-500' },
     { id: 'secondShot', label: '세컨샷 페어웨이 안착률', unit: '%', strokeHex: '#2563eb', bgClass: 'bg-blue-100', textClass: 'text-blue-700', borderClass: 'border-blue-500' },
     { id: 'gir', label: '그린적중률(GIR)', unit: '%', strokeHex: '#10b981', bgClass: 'bg-emerald-100', textClass: 'text-emerald-700', borderClass: 'border-emerald-500' },
     { id: 'ud', label: 'UP&DOWN 성공률', unit: '%', strokeHex: '#f97316', bgClass: 'bg-orange-100', textClass: 'text-orange-700', borderClass: 'border-orange-500' },
+    { id: 'bunkerSave', label: '벙커 세이브율', unit: '%', strokeHex: '#eab308', bgClass: 'bg-yellow-100', textClass: 'text-yellow-700', borderClass: 'border-yellow-500' },
     { id: 'avgPutts', label: '평균 퍼팅수', unit: '개', strokeHex: '#4b5563', bgClass: 'bg-gray-200', textClass: 'text-gray-700', borderClass: 'border-gray-500' },
     { id: 'girFirstPuttDist', label: 'GIR시 1st 평균거리', unit: 'ft', strokeHex: '#06b6d4', bgClass: 'bg-cyan-100', textClass: 'text-cyan-700', borderClass: 'border-cyan-500' },
     { id: 'recFirstPuttDist', label: '리커버리시 1st 평균거리', unit: 'ft', strokeHex: '#ef4444', bgClass: 'bg-red-100', textClass: 'text-red-700', borderClass: 'border-red-500' },
+    { id: 'secondPuttDist', label: '2nd 평균 퍼팅거리', unit: 'ft', strokeHex: '#8b5cf6', bgClass: 'bg-violet-100', textClass: 'text-violet-700', borderClass: 'border-violet-500' },
     { id: 'onePutts', label: '1퍼팅', unit: '회', strokeHex: '#14b8a6', bgClass: 'bg-teal-100', textClass: 'text-teal-700', borderClass: 'border-teal-500' },
     { id: 'threePutts', label: '3퍼팅 이상', unit: '회', strokeHex: '#f43f5e', bgClass: 'bg-rose-100', textClass: 'text-rose-700', borderClass: 'border-rose-500' }
   ];
@@ -1803,6 +2487,10 @@ function StatsView({ scores }) {
     return typeFilteredScores.filter(s => selectedRoundIds.includes(s.id));
   }, [typeFilteredScores, selectedRoundIds]);
 
+  useEffect(() => {
+    setActiveChartIdx(chartScores.length > 0 ? chartScores.length - 1 : null);
+  }, [chartScores.length]);
+
   const calculateMetricVal = (score, metricId) => {
     const holes = score.detailedHoles || [];
     let val = 0;
@@ -1818,6 +2506,7 @@ function StatsView({ scores }) {
       case 'secondShot': return calcRate(h => h.par === 5 && h.secondShotResult !== null, h => h.secondShotResult === 'O');
       case 'gir': return calcRate(h => h.girResult !== null, h => h.girResult === 'O');
       case 'ud': return calcRate(h => h.udResult !== null, h => h.udResult === 'O');
+      case 'bunkerSave': return calcRate(h => h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O');
       case 'avgPutts': {
         const actualTotalPutts = holes.reduce((sum, h) => sum + (h.putts || 0), 0) || score.putts;
         return holes.length > 0 ? parseFloat((actualTotalPutts / holes.length).toFixed(1)) : parseFloat((score.putts / 18).toFixed(1));
@@ -1830,6 +2519,11 @@ function StatsView({ scores }) {
       case 'recFirstPuttDist': {
         const vPutts = holes.filter(h => h.firstPuttFt && !isNaN(h.firstPuttFt) && h.firstPuttFt !== '' && h.girResult === 'X');
         const tFt = vPutts.reduce((sum, h) => sum + parseFloat(h.firstPuttFt), 0);
+        return vPutts.length > 0 ? parseFloat((tFt / vPutts.length).toFixed(1)) : 0;
+      }
+      case 'secondPuttDist': {
+        const vPutts = holes.filter(h => h.putts >= 2 && h.puttDetails?.[1]?.distance && !isNaN(h.puttDetails[1].distance));
+        const tFt = vPutts.reduce((sum, h) => sum + parseFloat(h.puttDetails[1].distance), 0);
         return vPutts.length > 0 ? parseFloat((tFt / vPutts.length).toFixed(1)) : 0;
       }
       case 'onePutts': return holes.filter(h => h.putts === 1).length;
@@ -1850,12 +2544,10 @@ function StatsView({ scores }) {
     });
   }, [chartScores, selectedMetrics]);
 
-  // 다중 그래프를 위한 Y축 min/max 계산
   const isAllPercentages = chartSeries.length > 0 && chartSeries.every(s => s.unit === '%');
   
   let effectiveMin, range;
   if (isAllPercentages) {
-     // 퍼센트 지표만 있을 경우 Y축 스케일을 0~100으로 고정
      effectiveMin = 0;
      range = 100;
   } else {
@@ -1873,7 +2565,7 @@ function StatsView({ scores }) {
   const toggleMetric = (id) => {
     setSelectedMetrics(prev => {
       if (prev.includes(id)) {
-        if (prev.length === 1) return prev; // 최소 1개는 선택 유지
+        if (prev.length === 1) return prev; 
         return prev.filter(m => m !== id);
       }
       return [...prev, id];
@@ -1893,7 +2585,6 @@ function StatsView({ scores }) {
          <button onClick={()=>setFilterType('tournament')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${filterType==='tournament' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}>시합 라운드</button>
       </div>
 
-      {/* 다중 선택 가능한 지표 메뉴 */}
       <div>
         <div className="flex justify-between items-center mb-2 px-1">
           <span className="text-xs font-bold text-gray-500">분석할 상세 지표 <span className="font-normal text-[10px]">(복수 선택 가능)</span></span>
@@ -1916,7 +2607,6 @@ function StatsView({ scores }) {
         </div>
       </div>
 
-      {/* 라운드 커스텀 선택 메뉴 */}
       <div>
         <div className="flex justify-between items-center mb-2 px-1">
           <span className="text-xs font-bold text-gray-500">차트에 표시할 라운드 <span className="font-normal text-[10px]">(기본: 최근 4경기)</span></span>
@@ -1968,11 +2658,10 @@ function StatsView({ scores }) {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-         {/* 다중 지표 요약 (Grid) */}
          <div className="grid grid-cols-2 gap-3 mb-6 border-b border-gray-100 pb-4">
             {chartSeries.map(series => {
                const avgVal = series.data.length > 0 ? parseFloat((series.data.reduce((s, d) => s + d.val, 0) / series.data.length).toFixed(1)) : 0;
-               const isLowerBetter = ['avgPutts', 'girFirstPuttDist', 'recFirstPuttDist', 'threePutts'].includes(series.id);
+               const isLowerBetter = ['avgPutts', 'girFirstPuttDist', 'recFirstPuttDist', 'secondPuttDist', 'threePutts'].includes(series.id);
                const vals = series.data.map(d => d.val);
                const bestVal = vals.length > 0 ? (isLowerBetter ? Math.min(...vals) : Math.max(...vals)) : '-';
 
@@ -1994,7 +2683,7 @@ function StatsView({ scores }) {
             })}
          </div>
 
-         {/* 동적 선형 그래프 (SVG) */}
+         {/* 동적 선형 그래프 (SVG 및 터치 인터랙티브 데이터 카드 적용) */}
          {chartScores.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center text-sm font-medium text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
               <Activity size={24} className="mb-2 text-gray-300" />
@@ -2002,10 +2691,9 @@ function StatsView({ scores }) {
             </div>
          ) : (
             <div className="w-full overflow-x-auto scrollbar-hide -mx-5 px-5">
-               <div className="relative h-64 mt-2 border-b border-gray-100 transition-all duration-300" style={{ width: `${chartWidthPercent}%` }}>
+               <div className="relative h-64 mt-2 mb-8 border-b border-gray-100 transition-all duration-300" style={{ width: `${chartWidthPercent}%` }}>
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
                     
-                    {/* Y축 점선 그리드 (25%, 50%, 75%, 100%) */}
                     {[25, 50, 75, 100].map(val => {
                       const plotVal = isAllPercentages ? val : effectiveMin + (range * (val / 100));
                       const y = 100 - paddingY - ((plotVal - effectiveMin) / range) * (100 - paddingY * 2);
@@ -2017,7 +2705,6 @@ function StatsView({ scores }) {
                       );
                     })}
 
-                    {/* 다중 차트 렌더링 */}
                     {chartSeries.map((series, sIdx) => {
                       const pointsStr = series.data.map((d, i) => {
                         const x = chartScores.length === 1 ? 50 : paddingX + (i / (chartScores.length - 1)) * (100 - paddingX * 2);
@@ -2025,7 +2712,6 @@ function StatsView({ scores }) {
                         return `${x},${y}`;
                       }).join(' ');
                       
-                      // 하나만 선택됐을 때는 예쁘게 아래 그라데이션 채우기 추가
                       let polygonLayer = null;
                       if (chartSeries.length === 1) {
                          const firstX = chartScores.length === 1 ? 50 : paddingX;
@@ -2053,27 +2739,58 @@ function StatsView({ scores }) {
                     })}
                   </svg>
                   
-                  {/* 데이터 포인트 오버레이 */}
+                  {/* 인터랙티브 데이터 마커 및 툴팁 영역 */}
                   {chartScores.map((score, i) => {
                      const x = chartScores.length === 1 ? '50%' : `${paddingX + (i / (chartScores.length - 1)) * (100 - paddingX * 2)}%`;
+                     const isActive = activeChartIdx === i;
+                     
+                     let tooltipClass = "-translate-x-1/2";
+                     if (i === 0 && chartScores.length > 1) tooltipClass = "translate-x-0"; 
+                     else if (i === chartScores.length - 1 && chartScores.length > 1) tooltipClass = "-translate-x-full"; 
+                     
                      return (
-                        <div key={`col-${score.id}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left: x, width: '20px', marginLeft: '-10px' }}>
+                        <div 
+                           key={`col-${score.id}`} 
+                           className="absolute top-0 bottom-0 cursor-pointer group" 
+                           style={{ left: x, width: '40px', marginLeft: '-20px' }}
+                           onClick={() => setActiveChartIdx(i)}
+                        >
+                           <div className={`absolute top-4 bottom-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-300 ${isActive ? 'bg-gray-400 border-dashed border-l border-gray-400' : 'bg-transparent group-hover:bg-gray-200'}`}></div>
+
                            {chartSeries.map(series => {
                               const d = series.data[i];
                               const y = `${100 - paddingY - ((d.val - effectiveMin) / range) * (100 - paddingY * 2)}%`;
                               return (
-                                 <div key={`${series.id}-${d.id}`} className="absolute w-full h-0 transition-all duration-500" style={{ top: y }}>
-                                    <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 mb-1.5 flex flex-col items-center">
-                                       <span className={`text-[9px] font-bold bg-white/90 px-1 py-0.5 rounded shadow-sm border whitespace-nowrap ${series.textClass} ${series.borderClass}`}>
-                                         {d.val}{series.unit === '%' ? '%' : ''}
-                                       </span>
-                                    </div>
-                                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm z-10" style={{ backgroundColor: series.strokeHex }}></div>
+                                 <div key={`dot-${series.id}-${d.id}`} className="absolute w-full h-0 transition-all duration-500 z-10 pointer-events-none" style={{ top: y }}>
+                                    <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-sm transition-all duration-300 ${isActive ? 'w-3.5 h-3.5 ring-2 ring-emerald-100' : 'w-2.5 h-2.5 opacity-80'}`} style={{ backgroundColor: series.strokeHex }}></div>
                                  </div>
                               );
                            })}
-                           {/* X축 날짜 라벨 */}
-                           <div className="absolute bottom-0 left-1/2 transform translate-y-7 -translate-x-1/2 text-center text-[9px] text-gray-400 font-bold whitespace-nowrap">
+
+                           {isActive && (
+                              <div className={`absolute z-30 top-2 left-1/2 transform ${tooltipClass} bg-gray-900/70 backdrop-blur-md px-3 py-2.5 rounded-xl shadow-xl pointer-events-none min-w-[130px] animate-fadeIn border border-gray-600/30 whitespace-nowrap`}>
+                                 <div className="text-[10px] font-bold text-gray-300 mb-2 flex justify-between items-center border-b border-gray-600/50 pb-1.5 gap-3">
+                                   <span>{score.course}</span>
+                                   <span>{score.date.slice(5)}</span>
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   {chartSeries.map(series => {
+                                      const d = series.data[i];
+                                      return (
+                                         <div key={`tip-${series.id}`} className="flex items-center justify-between gap-4 text-xs">
+                                            <div className="flex items-center gap-1.5">
+                                               <div className="w-2 h-2 rounded-full shadow-sm flex-shrink-0" style={{ backgroundColor: series.strokeHex }}></div>
+                                               <span className="text-gray-200 font-medium">{series.label}</span>
+                                            </div>
+                                            <span className="font-black text-white text-right">{d.val}<span className="text-[9px] font-normal text-gray-400 ml-0.5">{series.unit}</span></span>
+                                         </div>
+                                      );
+                                   })}
+                                 </div>
+                              </div>
+                           )}
+
+                           <div className={`absolute bottom-0 left-1/2 transform translate-y-7 -translate-x-1/2 text-center text-[9px] font-bold whitespace-nowrap transition-colors duration-300 ${isActive ? 'text-gray-900 bg-gray-200 px-2.5 py-1 rounded-full shadow-sm' : 'text-gray-400'}`}>
                               {score.date.slice(5)}
                            </div>
                         </div>
@@ -2229,18 +2946,15 @@ function PaymentModal({ onClose, onSuccess }) {
   );
 }
 
-// --- [새로 추가된 컴포넌트: 교습가 전용 앱 페이지] ---
 function InstructorApp({ onLogout }) {
   const [studentEmail, setStudentEmail] = useState('');
-  const [showUserMenu, setShowUserMenu] = useState(false); // 로그아웃 메뉴 상태
+  const [showUserMenu, setShowUserMenu] = useState(false); 
   
-  // 모의 데이터(initialScores)를 학생 데이터에 연동
   const [students, setStudents] = useState([
-    { id: 1, email: 'tiger.woods@example.com', name: '타이거 우즈', lastRound: '2026.03.08', avgScore: 68, scores: initialScores },
-    { id: 2, email: 'rory@example.com', name: '로리 맥길로이', lastRound: '2026.03.05', avgScore: 69, scores: initialScores.slice(0, 2) },
+    { id: 1, email: 'tiger.woods@example.com', name: '타이거 우즈', lastRound: '2026.03.08', avgScore: 68, scores: initialScores, practiceRecords: initialPracticeRecords },
+    { id: 2, email: 'rory@example.com', name: '로리 맥길로이', lastRound: '2026.03.05', avgScore: 69, scores: initialScores.slice(0, 2), practiceRecords: [] },
   ]);
 
-  // 특정 학생 조회 모드 상태 관리
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [selectedScore, setSelectedScore] = useState(null); 
@@ -2252,14 +2966,14 @@ function InstructorApp({ onLogout }) {
       return;
     }
     
-    // 새로운 학생 추가
     const newStudent = {
       id: Date.now(),
       email: studentEmail,
       name: studentEmail.split('@')[0], 
       lastRound: '기록 없음',
       avgScore: '-',
-      scores: [] // 새 학생은 빈 데이터
+      scores: [],
+      practiceRecords: [] 
     };
     
     setStudents([newStudent, ...students]);
@@ -2273,7 +2987,45 @@ function InstructorApp({ onLogout }) {
     setSelectedScore(null);
   };
 
-  // 학생 계정을 터치하여 상세 화면에 진입한 경우
+  const handleSaveInstructorComment = (scoreId, comment) => {
+    if (!selectedStudent) return;
+
+    // 업데이트할 스코어 찾기 및 변경
+    const updatedScores = selectedStudent.scores.map(s => 
+      s.id === scoreId ? { ...s, instructorComment: comment } : s
+    );
+
+    // 선택된 학생 업데이트
+    const updatedStudent = { ...selectedStudent, scores: updatedScores };
+    setSelectedStudent(updatedStudent);
+
+    // 전체 학생 목록 업데이트
+    setStudents(prev => prev.map(st => 
+      st.id === selectedStudent.id ? updatedStudent : st
+    ));
+
+    // 현재 보고 있는 상세 스코어 뷰에도 즉시 반영
+    setSelectedScore(prev => ({...prev, instructorComment: comment}));
+  };
+
+  const handleSavePracticeComment = (recordId, comment) => {
+    if (!selectedStudent) return;
+
+    // 업데이트할 연습기록 찾기 및 변경
+    const updatedRecords = (selectedStudent.practiceRecords || []).map(r => 
+      r.id === recordId ? { ...r, instructorComment: comment } : r
+    );
+
+    // 선택된 학생 업데이트
+    const updatedStudent = { ...selectedStudent, practiceRecords: updatedRecords };
+    setSelectedStudent(updatedStudent);
+
+    // 전체 학생 목록 업데이트
+    setStudents(prev => prev.map(st => 
+      st.id === selectedStudent.id ? updatedStudent : st
+    ));
+  };
+
   if (selectedStudent) {
     const renderStudentTabContent = () => {
       switch(currentTab) {
@@ -2285,9 +3037,16 @@ function InstructorApp({ onLogout }) {
                       setSelectedScore(score);
                       setCurrentTab('roundDetail');
                     }} 
+                    onDeleteScore={()=>{}}
                  />;
         case 'stats': 
           return <StatsView scores={selectedStudent.scores} />;
+        case 'practice': 
+          return <PracticeView 
+                   records={selectedStudent.practiceRecords || []} 
+                   userRole="instructor" 
+                   onSaveComment={handleSavePracticeComment} 
+                 />;
         case 'roundDetail': 
           return <RoundDetailView 
                    score={selectedScore} 
@@ -2296,6 +3055,8 @@ function InstructorApp({ onLogout }) {
                      setAnalysisContext({ statType, title, category });
                      setCurrentTab(category === 'putting' ? 'puttingAnalysis' : 'missAnalysis');
                    }}
+                   userRole="instructor"
+                   onSaveInstructorComment={handleSaveInstructorComment}
                  />;
         case 'missAnalysis': 
           return <MissAnalysisView 
@@ -2310,14 +3071,13 @@ function InstructorApp({ onLogout }) {
                    onBack={() => setCurrentTab('roundDetail')} 
                  />;
         default: 
-          return <DashboardView scores={selectedStudent.scores} onScoreClick={() => {}} />;
+          return <DashboardView scores={selectedStudent.scores} onScoreClick={() => {}} onDeleteScore={()=>{}} />;
       }
     };
 
     return (
       <div className="min-h-screen bg-gray-100 flex justify-center font-sans">
         <div className="w-full max-w-md bg-white min-h-screen shadow-2xl relative flex flex-col">
-          {/* 교습가용 열람 헤더 (슬레이트 테마 유지) */}
           <header className="bg-slate-800 text-white p-4 sticky top-0 z-10 flex items-center shadow-md gap-3">
             <button onClick={handleBackToList} className="p-1 -ml-1 text-slate-300 hover:text-white transition-colors">
               <ChevronLeft size={24} />
@@ -2337,17 +3097,16 @@ function InstructorApp({ onLogout }) {
             {renderStudentTabContent()}
           </main>
 
-          {/* 교습가용 심플 하단 네비게이션 */}
           <nav className="bg-white border-t border-gray-200 fixed bottom-0 w-full max-w-md flex justify-around p-3 pb-safe z-10">
             <NavItem icon={<Home />} label="홈 (요약)" isActive={currentTab === 'dashboard'} onClick={() => setCurrentTab('dashboard')} />
             <NavItem icon={<TrendingUp />} label="상세 분석" isActive={currentTab === 'stats'} onClick={() => setCurrentTab('stats')} />
+            <NavItem icon={<TargetIcon />} label="연습기록" isActive={currentTab === 'practice'} onClick={() => setCurrentTab('practice')} />
           </nav>
         </div>
       </div>
     );
   }
 
-  // 기본 교습가 메인 화면 (학생 목록)
   return (
     <div className="min-h-screen bg-gray-100 flex justify-center font-sans">
       <div className="w-full max-w-md bg-gray-50 min-h-screen shadow-2xl relative flex flex-col">
@@ -2357,7 +3116,6 @@ function InstructorApp({ onLogout }) {
             Zeno Golf <span className="text-[10px] font-bold text-slate-300 bg-slate-700 px-2 py-0.5 rounded-full ml-1 align-middle">교습가 모드</span>
           </h1>
           
-          {/* 유저 아이콘 및 로그아웃 드롭다운 메뉴 */}
           <div className="relative">
             <button 
               onClick={() => setShowUserMenu(!showUserMenu)} 
@@ -2392,7 +3150,6 @@ function InstructorApp({ onLogout }) {
             <p className="text-sm text-gray-500">학생들의 스코어와 통계를 한눈에 확인하세요.</p>
           </div>
 
-          {/* 학생 추가 폼 */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 mb-6">
             <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
               <User size={16} className="text-slate-600" />
@@ -2421,7 +3178,6 @@ function InstructorApp({ onLogout }) {
             <p className="text-[10px] text-gray-400 mt-2 ml-1">* 학생이 가입한 이메일을 입력하면 자동으로 데이터가 연동됩니다.</p>
           </div>
 
-          {/* 학생 리스트 */}
           <div>
             <div className="flex justify-between items-center mb-3 px-1">
               <h3 className="font-bold text-gray-700">등록된 학생 목록</h3>
@@ -2461,3 +3217,4 @@ function InstructorApp({ onLogout }) {
     </div>
   );
 }
+

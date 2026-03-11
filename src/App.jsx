@@ -203,6 +203,7 @@ export default function GolfStudentApp() {
   // 기본 상태 관리
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userRole, setUserRole] = useState('student'); // 'student' | 'instructor'
+  const [userEmail, setUserEmail] = useState(''); // UID 대신 식별자로 사용할 이메일 상태
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [scores, setScores] = useState([]);
   const [practiceRecords, setPracticeRecords] = useState(initialPracticeRecords); // 연습 기록 상태 추가
@@ -227,15 +228,30 @@ export default function GolfStudentApp() {
     setEditingScoreId(null);
   };
 
+  // 로컬 스토리지에서 이전 로그인 정보 불러오기
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('zeno_golf_email');
+    const savedRole = localStorage.getItem('zeno_golf_role');
+    if (savedEmail && savedRole) {
+      setUserEmail(savedEmail);
+      setUserRole(savedRole);
+      setIsLoggedIn(true);
+    }
+  }, []);
+
   // 로그아웃 핸들러 
   const handleLogout = async () => {
     setIsLoggedIn(false);
     setUserRole('student');
     setCurrentTab('dashboard');
+    const prevEmail = userEmail;
+    setUserEmail('');
+    localStorage.removeItem('zeno_golf_email');
+    localStorage.removeItem('zeno_golf_role');
 
-    if (user && db) {
+    if (prevEmail && db) {
       try {
-        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        const stateRef = doc(db, 'artifacts', appId, 'users', prevEmail, 'appState', 'current');
         await setDoc(stateRef, { isLoggedIn: false, userRole: 'student', currentTab: 'dashboard' }, { merge: true });
       } catch (e) {
         console.warn("Logout save error", e);
@@ -244,20 +260,24 @@ export default function GolfStudentApp() {
   };
 
   // 로그인 성공 핸들러
-  const handleLoginSuccess = async (role, email) => {
+  const handleLoginSuccess = async (role, email, encodedEmail) => {
     setIsLoggedIn(true);
     setUserRole(role);
+    setUserEmail(encodedEmail);
+    
+    localStorage.setItem('zeno_golf_email', encodedEmail);
+    localStorage.setItem('zeno_golf_role', role);
 
-    if (user && db) {
+    if (db) {
       try {
-        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        const stateRef = doc(db, 'artifacts', appId, 'users', encodedEmail, 'appState', 'current');
         await setDoc(stateRef, { isLoggedIn: true, userRole: role }, { merge: true });
 
         // 교습가 연동을 위해 public 디렉토리에 유저 정보 저장
         if (email) {
-          const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'directory', user.uid);
+          const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'directory', encodedEmail);
           await setDoc(dirRef, {
-            uid: user.uid,
+            encodedEmail: encodedEmail,
             email: email,
             name: email.split('@')[0],
             role: role,
@@ -296,18 +316,20 @@ export default function GolfStudentApp() {
     return () => unsubscribe();
   }, []);
 
-  // 2. 앱 상태 데이터(작성 중이던 데이터 등) 클라우드에서 불러오기
+  // 2. 앱 상태 데이터(작성 중이던 데이터 등) 클라우드에서 불러오기 (userEmail 기반)
   useEffect(() => {
     if (!isAuthReady) return;
-    if (!user || !db) {
-      setScores(initialScores);
-      setIsDataLoaded(true);
+    if (!isLoggedIn || !user || !userEmail || !db) {
+      if (!isLoggedIn) {
+        setScores(initialScores);
+        setIsDataLoaded(true);
+      }
       return;
     }
 
     const loadState = async () => {
       try {
-        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        const stateRef = doc(db, 'artifacts', appId, 'users', userEmail, 'appState', 'current');
         const docSnap = await getDoc(stateRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
@@ -327,15 +349,15 @@ export default function GolfStudentApp() {
       setIsDataLoaded(true);
     };
     loadState();
-  }, [user, isAuthReady]);
+  }, [user, userEmail, isLoggedIn, isAuthReady]);
 
-  // 3. 앱 상태 변경 시 클라우드 자동 저장 (1.5초 딜레이)
+  // 3. 앱 상태 변경 시 클라우드 자동 저장 (userEmail 기반, 1.5초 딜레이)
   useEffect(() => {
-    if (!isDataLoaded || !user || !db) return;
+    if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
 
     const saveState = async () => {
       try {
-        const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
+        const stateRef = doc(db, 'artifacts', appId, 'users', userEmail, 'appState', 'current');
         const stateToSave = JSON.parse(JSON.stringify({
           isLoggedIn,
           userRole,
@@ -358,18 +380,19 @@ export default function GolfStudentApp() {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isDataLoaded, user]);
+  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isDataLoaded, user, userEmail]);
 
-  // 4. 완료된 스코어 목록 및 연습 기록 동기화
+  // 4. 완료된 스코어 목록 및 연습 기록 동기화 (userEmail 기반)
   useEffect(() => {
-    if (!isDataLoaded || !user || !db) return;
-    const scoresRef = collection(db, 'artifacts', appId, 'users', user.uid, 'scores');
+    if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
+    
+    const scoresRef = collection(db, 'artifacts', appId, 'users', userEmail, 'scores');
     const unsubscribeScores = onSnapshot(scoresRef, (snapshot) => {
       if (snapshot.empty) {
         initialScores.forEach(async (score) => {
           try {
             const cleanScore = JSON.parse(JSON.stringify(score));
-            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'scores', cleanScore.id.toString()), cleanScore);
+            await setDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'scores', cleanScore.id.toString()), cleanScore);
           } catch(e) {}
         });
         setScores(initialScores);
@@ -380,13 +403,13 @@ export default function GolfStudentApp() {
       }
     }, (error) => console.warn("Scores sync error", error));
 
-    const practiceRef = collection(db, 'artifacts', appId, 'users', user.uid, 'practice');
+    const practiceRef = collection(db, 'artifacts', appId, 'users', userEmail, 'practice');
     const unsubscribePractice = onSnapshot(practiceRef, (snapshot) => {
       if (snapshot.empty) {
         initialPracticeRecords.forEach(async (record) => {
           try {
             const cleanRecord = JSON.parse(JSON.stringify(record));
-            await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'practice', cleanRecord.id.toString()), cleanRecord);
+            await setDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'practice', cleanRecord.id.toString()), cleanRecord);
           } catch(e) {}
         });
         setPracticeRecords(initialPracticeRecords);
@@ -401,14 +424,14 @@ export default function GolfStudentApp() {
       unsubscribeScores();
       unsubscribePractice();
     };
-  }, [isDataLoaded, user]);
+  }, [isDataLoaded, user, userEmail, isLoggedIn]);
 
-  // 새로운 스코어 저장 및 업데이트 핸들러
+  // 새로운 스코어 저장 및 업데이트 핸들러 (userEmail 기반)
   const handleSaveScore = async (newScore) => {
-    if (user && db) {
+    if (userEmail && db) {
       try {
         const cleanScore = JSON.parse(JSON.stringify(newScore));
-        const scoreRef = doc(db, 'artifacts', appId, 'users', user.uid, 'scores', cleanScore.id.toString());
+        const scoreRef = doc(db, 'artifacts', appId, 'users', userEmail, 'scores', cleanScore.id.toString());
         await setDoc(scoreRef, cleanScore); 
       } catch(e) { console.warn("Save score error", e); }
     } else {
@@ -420,12 +443,12 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 새로운 연습 기록 저장 핸들러
+  // 새로운 연습 기록 저장 핸들러 (userEmail 기반)
   const handleSavePractice = async (newRecord) => {
-    if (user && db) {
+    if (userEmail && db) {
       try {
         const cleanRecord = JSON.parse(JSON.stringify(newRecord));
-        const recordRef = doc(db, 'artifacts', appId, 'users', user.uid, 'practice', cleanRecord.id.toString());
+        const recordRef = doc(db, 'artifacts', appId, 'users', userEmail, 'practice', cleanRecord.id.toString());
         await setDoc(recordRef, cleanRecord);
       } catch(e) { console.warn("Save practice error", e); }
     } else {
@@ -433,12 +456,12 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 스코어 삭제 핸들러 
+  // 스코어 삭제 핸들러 (userEmail 기반)
   const handleDeleteScore = async (scoreId) => {
     if (window.confirm('이 라운드 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
-      if (user && db) {
+      if (userEmail && db) {
         try {
-          await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'scores', scoreId.toString()));
+          await deleteDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'scores', scoreId.toString()));
         } catch(e) { console.warn("Delete score error", e); }
       } else {
         setScores(prev => prev.filter(s => s.id !== scoreId));
@@ -447,7 +470,7 @@ export default function GolfStudentApp() {
   };
 
   // 로딩 화면
-  if (!isAuthReady || !isDataLoaded) {
+  if (!isAuthReady || (!isDataLoaded && !isLoggedIn)) {
     return (
       <div className="min-h-screen bg-emerald-600 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -463,7 +486,7 @@ export default function GolfStudentApp() {
   }
 
   if (userRole === 'instructor') {
-    return <InstructorApp onLogout={handleLogout} user={user} db={db} appId={appId} />;
+    return <InstructorApp onLogout={handleLogout} userEmail={userEmail} user={user} db={db} appId={appId} />;
   }
 
   const renderTabContent = () => {
@@ -887,10 +910,10 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
       setIsLoading(false);
       
       if (otp === TEST_OTP) {
+        const encodedEmail = email.replace(/[\.\#\$\[\]]/g, '_'); // 이메일 인코딩
         if (db && appId && user) {
           try {
-            const encodedEmail = email.replace(/[\.\#\$\[\]]/g, '_');
-            const accountRef = doc(db, 'artifacts', appId, 'users', user.uid, 'accounts', encodedEmail);
+            const accountRef = doc(db, 'artifacts', appId, 'users', encodedEmail, 'accounts', encodedEmail);
             const snap = await getDoc(accountRef);
             if (!snap.exists()) {
                await setDoc(accountRef, { email, role, createdAt: Date.now() });
@@ -899,8 +922,8 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
             console.warn('Account save error', e);
           }
         }
-        // 이메일도 전달하여 handleLoginSuccess에서 directory에 저장할 수 있게 함
-        onLoginSuccess(role, email);
+        // 인코딩된 이메일 값을 최상단으로 넘겨줌
+        onLoginSuccess(role, email, encodedEmail);
       } else {
         alert('인증번호가 일치하지 않습니다. 다시 확인해주세요.');
       }
@@ -2965,7 +2988,7 @@ function PaymentModal({ onClose, onSuccess }) {
   );
 }
 
-function InstructorApp({ onLogout, user, db, appId }) {
+function InstructorApp({ onLogout, userEmail, user, db, appId }) {
   const [studentEmail, setStudentEmail] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false); 
   
@@ -2981,8 +3004,8 @@ function InstructorApp({ onLogout, user, db, appId }) {
 
   // 1. 등록된 내 학생 리스트 실시간 로드
   useEffect(() => {
-    if (!user || !db) return;
-    const myStudentsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'myStudents');
+    if (!userEmail || !db) return;
+    const myStudentsRef = collection(db, 'artifacts', appId, 'users', userEmail, 'myStudents');
     const unsubscribe = onSnapshot(myStudentsRef, (snapshot) => {
       const loaded = snapshot.docs.map(doc => doc.data());
       // 최신 등록 순
@@ -2990,20 +3013,20 @@ function InstructorApp({ onLogout, user, db, appId }) {
     }, (error) => console.warn("Instructor students load error", error));
 
     return () => unsubscribe();
-  }, [user, db, appId]);
+  }, [userEmail, db, appId]);
 
   // 2. 선택된 학생의 스코어 & 연습기록 실시간 로드
   useEffect(() => {
     if (!selectedStudent || !db) return;
     
-    const uid = selectedStudent.uid;
-    const scoresRef = collection(db, 'artifacts', appId, 'users', uid, 'scores');
+    const targetEmail = selectedStudent.encodedEmail;
+    const scoresRef = collection(db, 'artifacts', appId, 'users', targetEmail, 'scores');
     const unsubScores = onSnapshot(scoresRef, snap => {
       const loaded = snap.docs.map(d => ({id: Number(d.id), ...d.data()})).sort((a,b)=>a.id-b.id);
       setStudentScores(loaded);
     }, err => console.warn("Student scores load error", err));
 
-    const pracRef = collection(db, 'artifacts', appId, 'users', uid, 'practice');
+    const pracRef = collection(db, 'artifacts', appId, 'users', targetEmail, 'practice');
     const unsubPrac = onSnapshot(pracRef, snap => {
       const loaded = snap.docs.map(d => ({id: Number(d.id), ...d.data()})).sort((a,b)=>b.id-a.id);
       setStudentPractice(loaded);
@@ -3030,7 +3053,7 @@ function InstructorApp({ onLogout, user, db, appId }) {
       const foundStudent = allUsers.find(u => u.email === studentEmail && u.role === 'student');
 
       if (foundStudent) {
-        const myStudentRef = doc(db, 'artifacts', appId, 'users', user.uid, 'myStudents', foundStudent.uid);
+        const myStudentRef = doc(db, 'artifacts', appId, 'users', userEmail, 'myStudents', foundStudent.encodedEmail);
         await setDoc(myStudentRef, { ...foundStudent, createdAt: Date.now() });
         alert(`${foundStudent.name} 학생이 성공적으로 연동되었습니다!`);
         setStudentEmail('');
@@ -3052,7 +3075,7 @@ function InstructorApp({ onLogout, user, db, appId }) {
   const handleSaveInstructorComment = async (scoreId, comment) => {
     if (!selectedStudent || !db) return;
     try {
-      const scoreRef = doc(db, 'artifacts', appId, 'users', selectedStudent.uid, 'scores', scoreId.toString());
+      const scoreRef = doc(db, 'artifacts', appId, 'users', selectedStudent.encodedEmail, 'scores', scoreId.toString());
       await setDoc(scoreRef, { instructorComment: comment }, { merge: true });
     } catch (e) {
       console.warn("Instructor comment save error", e);
@@ -3063,7 +3086,7 @@ function InstructorApp({ onLogout, user, db, appId }) {
   const handleSavePracticeComment = async (recordId, comment) => {
     if (!selectedStudent || !db) return;
     try {
-      const pracRef = doc(db, 'artifacts', appId, 'users', selectedStudent.uid, 'practice', recordId.toString());
+      const pracRef = doc(db, 'artifacts', appId, 'users', selectedStudent.encodedEmail, 'practice', recordId.toString());
       await setDoc(pracRef, { instructorComment: comment }, { merge: true });
     } catch (e) {
       console.warn("Instructor practice comment save error", e);
@@ -3240,7 +3263,7 @@ function InstructorApp({ onLogout, user, db, appId }) {
               ) : (
                 myStudents.map(student => (
                   <div 
-                    key={student.uid} 
+                    key={student.encodedEmail} 
                     onClick={() => setSelectedStudent(student)}
                     className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between cursor-pointer hover:bg-gray-50 hover:border-slate-300 transition-all group active:scale-95"
                   >

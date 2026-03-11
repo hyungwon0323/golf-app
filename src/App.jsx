@@ -37,7 +37,7 @@ import {
   LogOut, 
   Crosshair,
   Lock,
-  Target as TargetIcon // 연습 기록 아이콘
+  Target as TargetIcon
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -65,7 +65,7 @@ try {
 }
 const appId = "zeno-golf-app";
 
-// --- [커스텀 아이콘: 드라이버 헤드 페이스] ---
+// --- [커스텀 아이콘] ---
 const DriverFaceIcon = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 7h16c1 0 2 0.8 2 2v4c0 4-4 7-10 7S2 17 2 13V9c0-1.2 1-2 2-2z" />
@@ -75,7 +75,6 @@ const DriverFaceIcon = ({ size = 14 }) => (
   </svg>
 );
 
-// --- [커스텀 아이콘: 롤로노아 조로 눈] ---
 const ZoroEyesIcon = ({ size = 32, className }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className} strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 7 L 11 10" strokeWidth="2.5" />
@@ -101,7 +100,7 @@ const MISS_REASONS = [
   { id: 'carry', label: '캐리조절', icon: <Ruler size={14} /> },
 ];
 
-// --- [모의 데이터 생성 함수 (상세 페이지 확인용)] ---
+// --- [모의 데이터] ---
 const generateMockDetailedHoles = () => {
   const getMockReasons = (maxIdx) => {
     const shuffled = [...MISS_REASONS].slice(0, maxIdx).sort(() => 0.5 - Math.random());
@@ -130,6 +129,8 @@ const generateMockDetailedHoles = () => {
       par: par,
       score: par + Math.floor(Math.random() * 2),
       putts: puttsCount,
+      penaltyOB: Math.random() > 0.9 ? 1 : 0,
+      penaltyHazard: Math.random() > 0.8 ? 1 : 0,
       firstPuttFt: firstPuttDist, 
       puttDetails: puttDetails,
       drive: driveRes,
@@ -144,7 +145,6 @@ const generateMockDetailedHoles = () => {
   });
 };
 
-// --- [모의 데이터] ---
 const initialScores = [
   { id: 1, date: '2026-02-28', course: '용인 CC', total: 95, putts: 38, fairways: 6, type: 'practice', temperature: '12', wind: '한클럽', roundReflection: '후반 홀 체력 저하로 샷이 많이 흔들렸다. 특히 드라이버 슬라이스가 심했음.', instructorComment: '체력 훈련과 함께 백스윙 탑에서 급해지지 않도록 템포 조절에 신경 써봅시다!', detailedHoles: generateMockDetailedHoles() },
   { id: 2, date: '2026-03-01', course: '레이크사이드', total: 92, putts: 36, fairways: 8, type: 'practice', temperature: '10', wind: '반클럽', detailedHoles: generateMockDetailedHoles() },
@@ -152,12 +152,13 @@ const initialScores = [
   { id: 4, date: '2026-03-07', course: '태광 CC', total: 88, putts: 33, fairways: 10, type: 'tournament', tournamentName: '용인시장배', temperature: '14', wind: '무풍', detailedHoles: generateMockDetailedHoles() },
 ];
 
-// --- [기록 폼 초기화 데이터 생성 함수] ---
 const generateInitialHoles = () => Array.from({ length: 18 }, (_, i) => ({
   hole: i + 1,
   par: 4,
   score: 4,
   putts: 2,
+  penaltyOB: 0,
+  penaltyHazard: 0,
   firstPuttFt: '', 
   puttDetails: Array.from({length: 4}, () => ({ distance: '', hook: '', slice: '', downhill: '', uphill: '' })),
   teeClub: null,
@@ -188,32 +189,28 @@ const generateInitialInfo = () => ({
   roundReflection: ''
 });
 
-// --- [모의 연습 기록 데이터] ---
 const initialPracticeRecords = [
   { id: 1, date: '2026-03-08', type: 'long', method: 'block', title: '드라이버 방향성 교정', content: '백스윙 탑에서 크로스오버 되는 느낌을 잡기 위해 노력함. 임팩트 시 클럽 페이스가 열리는 문제를 신경 썼다.', instructorComment: '백스윙 궤도를 영상으로 찍어서 확인해 보는 것이 좋겠습니다. 잘하고 있어요!' },
   { id: 2, date: '2026-03-09', type: 'short', method: 'random', title: '50m, 30m 어프로치', content: '거리감 맞추기 위주로 연습. 50m는 샌드웨지 3/4 스윙, 30m는 하프 스윙으로 기준을 잡았다. 스핀량은 아직 부족함.' },
 ];
 
 export default function GolfStudentApp() {
-  // --- [Firebase Auth & Data States] ---
   const [user, setUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  // 기본 상태 관리
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userRole, setUserRole] = useState('student'); // 'student' | 'instructor'
-  const [userEmail, setUserEmail] = useState(''); // UID 대신 식별자로 사용할 이메일 상태
+  const [userRole, setUserRole] = useState('student'); 
+  const [userEmail, setUserEmail] = useState(''); 
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [scores, setScores] = useState([]);
-  const [practiceRecords, setPracticeRecords] = useState(initialPracticeRecords); // 연습 기록 상태 추가
+  const [practiceRecords, setPracticeRecords] = useState(initialPracticeRecords); 
   const [isPremium, setIsPremium] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedScore, setSelectedScore] = useState(null); 
   const [analysisContext, setAnalysisContext] = useState(null); 
   const [showUserMenu, setShowUserMenu] = useState(false); 
   
-  // --- [기록 중인 상태 유지 (State Lifting & Edit Mode)] ---
   const [addScoreStep, setAddScoreStep] = useState(1);
   const [addScoreInfo, setAddScoreInfo] = useState(generateInitialInfo());
   const [addScoreHoles, setAddScoreHoles] = useState(generateInitialHoles());
@@ -228,7 +225,6 @@ export default function GolfStudentApp() {
     setEditingScoreId(null);
   };
 
-  // 로컬 스토리지에서 이전 로그인 정보 불러오기
   useEffect(() => {
     const savedEmail = localStorage.getItem('zeno_golf_email');
     const savedRole = localStorage.getItem('zeno_golf_role');
@@ -239,7 +235,6 @@ export default function GolfStudentApp() {
     }
   }, []);
 
-  // 로그아웃 핸들러 
   const handleLogout = async () => {
     setIsLoggedIn(false);
     setUserRole('student');
@@ -259,7 +254,6 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 로그인 성공 핸들러
   const handleLoginSuccess = async (role, email, encodedEmail) => {
     setIsLoggedIn(true);
     setUserRole(role);
@@ -273,7 +267,6 @@ export default function GolfStudentApp() {
         const stateRef = doc(db, 'artifacts', appId, 'users', encodedEmail, 'appState', 'current');
         await setDoc(stateRef, { isLoggedIn: true, userRole: role }, { merge: true });
 
-        // 교습가 연동을 위해 public 디렉토리에 유저 정보 저장
         if (email) {
           const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'directory', encodedEmail);
           await setDoc(dirRef, {
@@ -290,7 +283,6 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 1. Firebase Auth 초기화
   useEffect(() => {
     if (!auth) {
       setIsAuthReady(true);
@@ -316,7 +308,6 @@ export default function GolfStudentApp() {
     return () => unsubscribe();
   }, []);
 
-  // 2. 앱 상태 데이터(작성 중이던 데이터 등) 클라우드에서 불러오기 (userEmail 기반)
   useEffect(() => {
     if (!isAuthReady) return;
     if (!isLoggedIn || !user || !userEmail || !db) {
@@ -351,7 +342,6 @@ export default function GolfStudentApp() {
     loadState();
   }, [user, userEmail, isLoggedIn, isAuthReady]);
 
-  // 3. 앱 상태 변경 시 클라우드 자동 저장 (userEmail 기반, 1.5초 딜레이)
   useEffect(() => {
     if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
 
@@ -382,7 +372,6 @@ export default function GolfStudentApp() {
     return () => clearTimeout(timer);
   }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isDataLoaded, user, userEmail]);
 
-  // 4. 완료된 스코어 목록 및 연습 기록 동기화 (userEmail 기반)
   useEffect(() => {
     if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
     
@@ -403,7 +392,7 @@ export default function GolfStudentApp() {
         setPracticeRecords([]);
       } else {
         const fetchedRecords = snapshot.docs.map(d => ({ id: Number(d.id), ...d.data() }));
-        fetchedRecords.sort((a,b) => b.id - a.id); // 최신순 정렬
+        fetchedRecords.sort((a,b) => b.id - a.id);
         setPracticeRecords(fetchedRecords);
       }
     }, (error) => console.warn("Practice sync error", error));
@@ -414,7 +403,6 @@ export default function GolfStudentApp() {
     };
   }, [isDataLoaded, user, userEmail, isLoggedIn]);
 
-  // 새로운 스코어 저장 및 업데이트 핸들러 (userEmail 기반)
   const handleSaveScore = async (newScore) => {
     if (userEmail && db) {
       try {
@@ -431,7 +419,6 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 새로운 연습 기록 저장 핸들러 (userEmail 기반)
   const handleSavePractice = async (newRecord) => {
     if (userEmail && db) {
       try {
@@ -444,7 +431,6 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 스코어 삭제 핸들러 (userEmail 기반)
   const handleDeleteScore = async (scoreId) => {
     if (window.confirm('이 라운드 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
       if (userEmail && db) {
@@ -457,7 +443,6 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 연습 기록 삭제 핸들러 (userEmail 기반)
   const handleDeletePractice = async (recordId) => {
     if (window.confirm('이 연습 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
       if (userEmail && db) {
@@ -470,7 +455,6 @@ export default function GolfStudentApp() {
     }
   };
 
-  // 로딩 화면
   if (!isAuthReady || (!isDataLoaded && !isLoggedIn)) {
     return (
       <div className="min-h-screen bg-emerald-600 flex items-center justify-center">
@@ -540,6 +524,8 @@ export default function GolfStudentApp() {
                    });
                    setAddScoreHoles(scoreToEdit.detailedHoles.map(h => ({
                        ...h,
+                       penaltyOB: h.penaltyOB || 0,
+                       penaltyHazard: h.penaltyHazard || 0,
                        puttDetails: h.puttDetails && h.puttDetails.length === 4 
                            ? h.puttDetails 
                            : Array.from({length: 4}, () => ({ distance: '', hook: '', slice: '', downhill: '', uphill: '' }))
@@ -590,7 +576,6 @@ export default function GolfStudentApp() {
               </span>
             )}
             
-            {/* 유저 아이콘 및 로그아웃 드롭다운 메뉴 */}
             <div className="relative">
               <button 
                 onClick={() => setShowUserMenu(!showUserMenu)} 
@@ -635,7 +620,6 @@ export default function GolfStudentApp() {
   );
 }
 
-// --- [연습 기록용 개별 카드 컴포넌트 (코멘트 편집 기능 포함)] ---
 function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
   const [isEditingComment, setIsEditingComment] = useState(false);
   const [commentText, setCommentText] = useState(record.instructorComment || '');
@@ -699,7 +683,6 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
 
   return (
     <div className="relative rounded-2xl shadow-sm border border-gray-100 overflow-hidden group bg-red-500">
-      {/* 삭제 버튼 영역 (뒤에 숨겨짐) */}
       {onDelete && (
         <div className="absolute right-0 top-0 bottom-0 w-[80px] flex items-center justify-center z-0">
           <button 
@@ -712,7 +695,6 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
         </div>
       )}
 
-      {/* 메인 콘텐츠 영역 */}
       <div 
         className={`relative z-10 w-full bg-white p-4 transition-transform duration-200 ease-out ${onDelete ? 'sm:group-hover:-translate-x-[80px]' : ''}`}
         style={{ transform: `translateX(-${swipeOffset}px)` }}
@@ -730,7 +712,6 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
           {record.content}
         </p>
 
-        {/* 교습가 코멘트 영역 */}
         {(record.instructorComment || userRole === 'instructor') && (
           <div className="border-t border-gray-100 pt-3">
             <div className="flex justify-between items-center mb-2">
@@ -772,7 +753,6 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
   );
 }
 
-// --- [연습 기록 뷰 컴포넌트] ---
 function PracticeView({ records, onSave, userRole, onSaveComment, onDelete }) {
   const [isAdding, setIsAdding] = useState(false);
   const [newRecord, setNewRecord] = useState({ type: 'long', method: 'block', title: '', content: '' });
@@ -921,7 +901,6 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete }) {
   );
 }
 
-// --- [이메일 OTP 연동 로그인 뷰] ---
 function LoginView({ onLoginSuccess, user, auth, db, appId }) {
   const [role, setRole] = useState('student'); 
   const [email, setEmail] = useState('');
@@ -965,7 +944,7 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
       setIsLoading(false);
       
       if (otp === TEST_OTP) {
-        const encodedEmail = email.replace(/[\.\#\$\[\]]/g, '_'); // 이메일 인코딩
+        const encodedEmail = email.replace(/[\.\#\$\[\]]/g, '_');
         if (db && appId && user) {
           try {
             const accountRef = doc(db, 'artifacts', appId, 'users', encodedEmail, 'accounts', encodedEmail);
@@ -977,7 +956,6 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
             console.warn('Account save error', e);
           }
         }
-        // 인코딩된 이메일 값을 최상단으로 넘겨줌
         onLoginSuccess(role, email, encodedEmail);
       } else {
         alert('인증번호가 일치하지 않습니다. 다시 확인해주세요.');
@@ -1109,14 +1087,12 @@ function NavItem({ icon, label, isActive, onClick }) {
   );
 }
 
-// 스와이프 가능한 리스트 아이템 컴포넌트
 function SwipeableScoreItem({ score, onClick, onDelete }) {
   const [touchStartX, setTouchStartX] = useState(null);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const maxSwipe = 80; 
 
   const handleTouchStart = (e) => {
-    // onDelete가 없으면(교습가 모드 등) 스와이프 무시
     if (!onDelete) return;
     setTouchStartX(e.targetTouches[0].clientX);
   };
@@ -1145,7 +1121,6 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
 
   return (
     <div className="relative border-b border-gray-50 overflow-hidden group">
-      {/* onDelete 함수가 존재할 때만 삭제 버튼 영역 렌더링 */}
       {onDelete && (
         <div className="absolute right-0 top-0 bottom-0 w-[80px] bg-red-500 flex items-center justify-center z-0">
           <button 
@@ -1189,14 +1164,12 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
               {score.isRaining && score.precipitation && <span className="text-blue-500 font-medium">• 🌧️ {score.precipitation}mm</span>}
               {score.wind && <span>• {score.wind}</span>}
             </div>
-            {/* 학생 메모 프리뷰 */}
             {score.roundReflection && (
               <div className="text-[10px] text-emerald-700 mt-1.5 truncate bg-emerald-50/50 px-1.5 py-0.5 rounded border border-emerald-100">
                  <PenTool size={9} className="inline mr-1 mb-0.5" />
                  {score.roundReflection}
               </div>
             )}
-            {/* 교습가 코멘트 프리뷰 */}
             {score.instructorComment && (
               <div className="text-[10px] text-slate-600 mt-1 truncate bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
                  <User size={9} className="inline mr-1 mb-0.5" />
@@ -1370,6 +1343,9 @@ function RoundDetailView({ score, onBack, onAnalyze, onEdit, userRole, onSaveIns
   const totalSecondPuttFt = secondPutts.reduce((sum, h) => sum + parseFloat(h.puttDetails[1].distance), 0);
   const avgSecondPuttFt = secondPutts.length > 0 ? (totalSecondPuttFt / secondPutts.length).toFixed(1) : '-';
 
+  const totalPenaltyOB = holes.reduce((sum, h) => sum + (h.penaltyOB || 0), 0);
+  const totalPenaltyHazard = holes.reduce((sum, h) => sum + (h.penaltyHazard || 0), 0);
+
   return (
     <div className="p-5 animate-fadeIn pb-24 h-full bg-gray-50">
       <div className="flex items-center gap-3 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
@@ -1395,6 +1371,11 @@ function RoundDetailView({ score, onBack, onAnalyze, onEdit, userRole, onSaveIns
              )}
           </div>
           <div className="text-2xl font-black text-emerald-600 leading-none">{score.total}</div>
+          {(totalPenaltyOB > 0 || totalPenaltyHazard > 0) && (
+            <div className="text-[9px] text-red-500 font-bold mt-1 whitespace-nowrap">
+              OB {totalPenaltyOB} / 해저드 {totalPenaltyHazard}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1761,7 +1742,9 @@ function AddScoreDetailedView({
     const totalScore = holes.reduce((sum, h) => sum + h.score, 0);
     const totalPutts = holes.reduce((sum, h) => sum + h.putts, 0);
     const totalFairways = holes.filter(h => h.drive === 'O' && h.par !== 3).length; 
-    return { totalScore, totalPutts, totalFairways };
+    const totalPenaltyOB = holes.reduce((sum, h) => sum + (h.penaltyOB || 0), 0);
+    const totalPenaltyHazard = holes.reduce((sum, h) => sum + (h.penaltyHazard || 0), 0);
+    return { totalScore, totalPutts, totalFairways, totalPenaltyOB, totalPenaltyHazard };
   };
 
   const handleSave = async () => {
@@ -2082,6 +2065,28 @@ function AddScoreDetailedView({
                   value={curHole.putts} 
                   onChange={v => updateCurHole('putts', v)} 
                 />
+              </div>
+
+              {/* 패널티 입력 영역 */}
+              <div className="bg-red-50/40 p-4 rounded-xl border border-red-100 shadow-sm">
+                <label className="block text-[11px] font-black text-red-800 mb-3 uppercase tracking-tight flex items-center justify-between">
+                  패널티 (Penalty)
+                  <span className="text-[9px] font-normal text-red-400">최대 5회까지 입력</span>
+                </label>
+                <div className="grid grid-cols-2 gap-4">
+                  <Stepper 
+                    label="OB" 
+                    value={curHole.penaltyOB || 0} 
+                    onChange={v => updateCurHole('penaltyOB', Math.min(5, Math.max(0, v)))} 
+                    bgClass="bg-white"
+                  />
+                  <Stepper 
+                    label="해저드" 
+                    value={curHole.penaltyHazard || 0} 
+                    onChange={v => updateCurHole('penaltyHazard', Math.min(5, Math.max(0, v)))} 
+                    bgClass="bg-white"
+                  />
+                </div>
               </div>
 
               {/* 동적 퍼팅 상세 입력 영역 */}
@@ -2448,7 +2453,7 @@ function AddScoreDetailedView({
   }
 
   if (step === 3) {
-    const { totalScore, totalPutts } = calculateTotals();
+    const { totalScore, totalPutts, totalPenaltyOB, totalPenaltyHazard } = calculateTotals();
     
     return (
       <div className="p-4 animate-fadeIn pb-24 h-full flex flex-col">
@@ -2468,12 +2473,15 @@ function AddScoreDetailedView({
               <div className="text-xs text-gray-400">Total Score</div>
               <div className="text-3xl font-black">{totalScore}</div>
             </div>
-            <div className="text-right">
-               <div className="text-xs text-gray-400">Environment Info</div>
-               <div className="text-sm font-bold text-gray-200">
-                 {info.greenSpeed ? `그린 ${info.greenSpeed}m / ` : ''}
-                 {info.temperature ? `${info.temperature}°C` : '-'} / {info.wind || '-'}
-                 {info.isRaining && info.precipitation ? ` / 🌧️ ${info.precipitation}mm` : ''}
+            <div className="text-right flex flex-col items-end gap-1.5">
+               <div className="text-[10px] text-gray-400">
+                 {info.greenSpeed ? `그린 ${info.greenSpeed}m ` : ''}
+                 {info.temperature ? `${info.temperature}°C ` : ''} 
+                 {info.wind ? `${info.wind} ` : ''}
+                 {info.isRaining && info.precipitation ? `🌧️${info.precipitation}mm` : ''}
+               </div>
+               <div className="text-xs font-bold text-gray-200 bg-gray-700 px-2 py-1 rounded">
+                 🚨 OB <span className="text-red-400">{totalPenaltyOB}</span> | 해저드 <span className="text-red-400">{totalPenaltyHazard}</span>
                </div>
             </div>
           </div>
@@ -2513,9 +2521,9 @@ function AddScoreDetailedView({
   }
 }
 
-function Stepper({ label, value, onChange }) {
+function Stepper({ label, value, onChange, bgClass = 'bg-gray-50' }) {
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 flex flex-col items-center">
+    <div className={`${bgClass} border border-gray-200 rounded-xl p-3 flex flex-col items-center`}>
       <span className="text-xs font-bold text-gray-500 mb-2">{label}</span>
       <div className="flex items-center gap-3 w-full justify-between">
         <button onClick={() => onChange(Math.max(0, value - 1))} className="w-8 h-8 rounded-full bg-white border border-gray-300 text-gray-600 flex items-center justify-center font-bold shadow-sm">-</button>
@@ -2573,7 +2581,9 @@ function StatsView({ scores }) {
     { id: 'recFirstPuttDist', label: '리커버리시 1st 평균거리', unit: 'ft', strokeHex: '#ef4444', bgClass: 'bg-red-100', textClass: 'text-red-700', borderClass: 'border-red-500' },
     { id: 'secondPuttDist', label: '2nd 평균 퍼팅거리', unit: 'ft', strokeHex: '#8b5cf6', bgClass: 'bg-violet-100', textClass: 'text-violet-700', borderClass: 'border-violet-500' },
     { id: 'onePutts', label: '1퍼팅', unit: '회', strokeHex: '#14b8a6', bgClass: 'bg-teal-100', textClass: 'text-teal-700', borderClass: 'border-teal-500' },
-    { id: 'threePutts', label: '3퍼팅 이상', unit: '회', strokeHex: '#f43f5e', bgClass: 'bg-rose-100', textClass: 'text-rose-700', borderClass: 'border-rose-500' }
+    { id: 'threePutts', label: '3퍼팅 이상', unit: '회', strokeHex: '#f43f5e', bgClass: 'bg-rose-100', textClass: 'text-rose-700', borderClass: 'border-rose-500' },
+    { id: 'penaltyOB', label: 'OB 갯수', unit: '개', strokeHex: '#dc2626', bgClass: 'bg-red-50', textClass: 'text-red-600', borderClass: 'border-red-400' },
+    { id: 'penaltyHazard', label: '해저드 갯수', unit: '개', strokeHex: '#ea580c', bgClass: 'bg-orange-50', textClass: 'text-orange-600', borderClass: 'border-orange-400' }
   ];
 
   const typeFilteredScores = useMemo(() => {
@@ -2631,6 +2641,8 @@ function StatsView({ scores }) {
       }
       case 'onePutts': return holes.filter(h => h.putts === 1).length;
       case 'threePutts': return holes.filter(h => h.putts >= 3).length;
+      case 'penaltyOB': return holes.reduce((sum, h) => sum + (h.penaltyOB || 0), 0);
+      case 'penaltyHazard': return holes.reduce((sum, h) => sum + (h.penaltyHazard || 0), 0);
       default: return 0;
     }
   };
@@ -2764,7 +2776,7 @@ function StatsView({ scores }) {
          <div className="grid grid-cols-2 gap-3 mb-6 border-b border-gray-100 pb-4">
             {chartSeries.map(series => {
                const avgVal = series.data.length > 0 ? parseFloat((series.data.reduce((s, d) => s + d.val, 0) / series.data.length).toFixed(1)) : 0;
-               const isLowerBetter = ['avgPutts', 'girFirstPuttDist', 'recFirstPuttDist', 'secondPuttDist', 'threePutts'].includes(series.id);
+               const isLowerBetter = ['avgPutts', 'girFirstPuttDist', 'recFirstPuttDist', 'secondPuttDist', 'threePutts', 'penaltyOB', 'penaltyHazard'].includes(series.id);
                const vals = series.data.map(d => d.val);
                const bestVal = vals.length > 0 ? (isLowerBetter ? Math.min(...vals) : Math.max(...vals)) : '-';
 
@@ -3331,7 +3343,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-lg uppercase">
-                        {student.name.charAt(0)}
+                        {student.name ? student.name.charAt(0) : '?'}
                       </div>
                       <div>
                         <div className="font-bold text-gray-800 text-sm mb-0.5">{student.name}</div>

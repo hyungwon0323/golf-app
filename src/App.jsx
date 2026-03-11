@@ -389,13 +389,7 @@ export default function GolfStudentApp() {
     const scoresRef = collection(db, 'artifacts', appId, 'users', userEmail, 'scores');
     const unsubscribeScores = onSnapshot(scoresRef, (snapshot) => {
       if (snapshot.empty) {
-        initialScores.forEach(async (score) => {
-          try {
-            const cleanScore = JSON.parse(JSON.stringify(score));
-            await setDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'scores', cleanScore.id.toString()), cleanScore);
-          } catch(e) {}
-        });
-        setScores(initialScores);
+        setScores([]);
       } else {
         const fetchedScores = snapshot.docs.map(d => ({ id: Number(d.id), ...d.data() }));
         fetchedScores.sort((a,b) => a.id - b.id);
@@ -406,13 +400,7 @@ export default function GolfStudentApp() {
     const practiceRef = collection(db, 'artifacts', appId, 'users', userEmail, 'practice');
     const unsubscribePractice = onSnapshot(practiceRef, (snapshot) => {
       if (snapshot.empty) {
-        initialPracticeRecords.forEach(async (record) => {
-          try {
-            const cleanRecord = JSON.parse(JSON.stringify(record));
-            await setDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'practice', cleanRecord.id.toString()), cleanRecord);
-          } catch(e) {}
-        });
-        setPracticeRecords(initialPracticeRecords);
+        setPracticeRecords([]);
       } else {
         const fetchedRecords = snapshot.docs.map(d => ({ id: Number(d.id), ...d.data() }));
         fetchedRecords.sort((a,b) => b.id - a.id); // 최신순 정렬
@@ -469,6 +457,19 @@ export default function GolfStudentApp() {
     }
   };
 
+  // 연습 기록 삭제 핸들러 (userEmail 기반)
+  const handleDeletePractice = async (recordId) => {
+    if (window.confirm('이 연습 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
+      if (userEmail && db) {
+        try {
+          await deleteDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'practice', recordId.toString()));
+        } catch(e) { console.warn("Delete practice error", e); }
+      } else {
+        setPracticeRecords(prev => prev.filter(r => r.id !== recordId));
+      }
+    }
+  };
+
   // 로딩 화면
   if (!isAuthReady || (!isDataLoaded && !isLoggedIn)) {
     return (
@@ -513,7 +514,7 @@ export default function GolfStudentApp() {
                  onReset={resetAddScoreState}
                />;
       case 'stats': return <StatsView scores={scores} />;
-      case 'practice': return <PracticeView records={practiceRecords} onSave={handleSavePractice} userRole="student" />; 
+      case 'practice': return <PracticeView records={practiceRecords} onSave={handleSavePractice} onDelete={handleDeletePractice} userRole="student" />; 
       case 'roundDetail': 
         return <RoundDetailView 
                  score={selectedScore} 
@@ -635,9 +636,40 @@ export default function GolfStudentApp() {
 }
 
 // --- [연습 기록용 개별 카드 컴포넌트 (코멘트 편집 기능 포함)] ---
-function PracticeRecordItem({ record, userRole, onSaveComment }) {
+function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
   const [isEditingComment, setIsEditingComment] = useState(false);
   const [commentText, setCommentText] = useState(record.instructorComment || '');
+
+  const [touchStartX, setTouchStartX] = useState(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const maxSwipe = 80;
+
+  const handleTouchStart = (e) => {
+    if (!onDelete) return;
+    setTouchStartX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!onDelete || touchStartX === null) return;
+    const currentX = e.targetTouches[0].clientX;
+    const diff = touchStartX - currentX;
+
+    if (diff > 0) {
+      setSwipeOffset(Math.min(diff, maxSwipe));
+    } else {
+      setSwipeOffset(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!onDelete) return;
+    if (swipeOffset > maxSwipe / 2) {
+      setSwipeOffset(maxSwipe);
+    } else {
+      setSwipeOffset(0);
+    }
+    setTouchStartX(null);
+  };
 
   const handleSave = () => {
     if (onSaveComment) {
@@ -666,60 +698,82 @@ function PracticeRecordItem({ record, userRole, onSaveComment }) {
   };
 
   return (
-    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 relative group">
-      <div className="flex items-center gap-2 mb-2">
-        {getRecordTypeBadge(record.type)}
-        {getRecordMethodBadge(record.method)}
-        <span className="text-[10px] text-gray-400 font-medium ml-auto">{record.date}</span>
-      </div>
-      <h3 className="font-bold text-gray-800 mb-2">{record.title}</h3>
-      <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-3 rounded-xl border border-gray-50 mb-3">
-        {record.content}
-      </p>
-
-      {/* 교습가 코멘트 영역 */}
-      {(record.instructorComment || userRole === 'instructor') && (
-        <div className="border-t border-gray-100 pt-3">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
-              <User size={12} /> 교습가 피드백
-            </span>
-            {userRole === 'instructor' && !isEditingComment && (
-              <button 
-                onClick={() => setIsEditingComment(true)}
-                className="text-[10px] text-slate-400 hover:text-slate-700 font-bold underline"
-              >
-                {record.instructorComment ? '수정' : '작성'}
-              </button>
-            )}
-          </div>
-          
-          {userRole === 'instructor' && isEditingComment ? (
-            <div className="space-y-2 animate-fadeIn">
-              <textarea
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                placeholder="피드백을 남겨주세요."
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 min-h-[60px] resize-none"
-              />
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setIsEditingComment(false)} className="px-3 py-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 rounded">취소</button>
-                <button onClick={handleSave} className="px-3 py-1.5 text-[10px] font-bold bg-slate-600 text-white rounded shadow-sm hover:bg-slate-700">저장</button>
-              </div>
-            </div>
-          ) : (
-            <div className="text-[11px] text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-100 whitespace-pre-wrap leading-relaxed">
-              {record.instructorComment ? record.instructorComment : <span className="italic text-slate-400">아직 피드백이 없습니다.</span>}
-            </div>
-          )}
+    <div className="relative rounded-2xl shadow-sm border border-gray-100 overflow-hidden group bg-red-500">
+      {/* 삭제 버튼 영역 (뒤에 숨겨짐) */}
+      {onDelete && (
+        <div className="absolute right-0 top-0 bottom-0 w-[80px] flex items-center justify-center z-0">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDelete(record.id); setSwipeOffset(0); }}
+            className="text-white flex flex-col items-center gap-1 w-full h-full justify-center opacity-100 hover:bg-red-600 transition-colors"
+          >
+            <X size={20} />
+            <span className="text-[10px] font-bold">삭제</span>
+          </button>
         </div>
       )}
+
+      {/* 메인 콘텐츠 영역 */}
+      <div 
+        className={`relative z-10 w-full bg-white p-4 transition-transform duration-200 ease-out ${onDelete ? 'sm:group-hover:-translate-x-[80px]' : ''}`}
+        style={{ transform: `translateX(-${swipeOffset}px)` }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          {getRecordTypeBadge(record.type)}
+          {getRecordMethodBadge(record.method)}
+          <span className="text-[10px] text-gray-400 font-medium ml-auto">{record.date}</span>
+        </div>
+        <h3 className="font-bold text-gray-800 mb-2">{record.title}</h3>
+        <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-3 rounded-xl border border-gray-50 mb-3">
+          {record.content}
+        </p>
+
+        {/* 교습가 코멘트 영역 */}
+        {(record.instructorComment || userRole === 'instructor') && (
+          <div className="border-t border-gray-100 pt-3">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                <User size={12} /> 교습가 피드백
+              </span>
+              {userRole === 'instructor' && !isEditingComment && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsEditingComment(true); }}
+                  className="text-[10px] text-slate-400 hover:text-slate-700 font-bold underline p-1 -m-1"
+                >
+                  {record.instructorComment ? '수정' : '작성'}
+                </button>
+              )}
+            </div>
+            
+            {userRole === 'instructor' && isEditingComment ? (
+              <div className="space-y-2 animate-fadeIn" onClick={e => e.stopPropagation()}>
+                <textarea
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="피드백을 남겨주세요."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-slate-400 min-h-[60px] resize-none"
+                />
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => setIsEditingComment(false)} className="px-3 py-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 rounded">취소</button>
+                  <button onClick={handleSave} className="px-3 py-1.5 text-[10px] font-bold bg-slate-600 text-white rounded shadow-sm hover:bg-slate-700">저장</button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-[11px] text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-100 whitespace-pre-wrap leading-relaxed">
+                {record.instructorComment ? record.instructorComment : <span className="italic text-slate-400">아직 피드백이 없습니다.</span>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 // --- [연습 기록 뷰 컴포넌트] ---
-function PracticeView({ records, onSave, userRole, onSaveComment }) {
+function PracticeView({ records, onSave, userRole, onSaveComment, onDelete }) {
   const [isAdding, setIsAdding] = useState(false);
   const [newRecord, setNewRecord] = useState({ type: 'long', method: 'block', title: '', content: '' });
 
@@ -858,6 +912,7 @@ function PracticeView({ records, onSave, userRole, onSaveComment }) {
               record={record} 
               userRole={userRole} 
               onSaveComment={onSaveComment} 
+              onDelete={onDelete}
             />
           ))
         )}
@@ -3122,7 +3177,8 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
           return <PracticeView 
                    records={studentPractice} 
                    userRole="instructor" 
-                   onSaveComment={handleSavePracticeComment} 
+                   onSaveComment={handleSavePracticeComment}
+                   onDelete={null} 
                  />;
         case 'roundDetail': 
           return <RoundDetailView 

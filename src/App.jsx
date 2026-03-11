@@ -1092,7 +1092,7 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
     <div className="relative border-b border-gray-50 overflow-hidden group">
       {/* onDelete 함수가 존재할 때만 삭제 버튼 영역 렌더링 */}
       {onDelete && (
-        <div className="absolute right-0 top-0 bottom-0 w-[80px] bg-red-500 flex items-center justify-center">
+        <div className="absolute right-0 top-0 bottom-0 w-[80px] bg-red-500 flex items-center justify-center z-0">
           <button 
             onClick={(e) => { e.stopPropagation(); onDelete(score.id); setSwipeOffset(0); }}
             className="text-white flex flex-col items-center gap-1 w-full h-full justify-center opacity-100 hover:bg-red-600 transition-colors"
@@ -1104,7 +1104,7 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
       )}
 
       <div 
-        className={`relative bg-white p-4 flex items-center justify-between cursor-pointer transition-transform duration-200 ease-out ${onDelete ? 'sm:group-hover:-translate-x-[80px]' : ''}`}
+        className={`relative z-10 w-full bg-white p-4 flex items-center justify-between cursor-pointer transition-transform duration-200 ease-out ${onDelete ? 'sm:group-hover:-translate-x-[80px]' : ''}`}
         style={{ transform: `translateX(-${swipeOffset}px)` }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}

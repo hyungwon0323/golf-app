@@ -42,7 +42,7 @@ import {
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc } from 'firebase/firestore'; 
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, getDocs } from 'firebase/firestore'; 
 
 // --- [Firebase Initialization] ---
 let app, auth, db;
@@ -244,7 +244,7 @@ export default function GolfStudentApp() {
   };
 
   // 로그인 성공 핸들러
-  const handleLoginSuccess = async (role) => {
+  const handleLoginSuccess = async (role, email) => {
     setIsLoggedIn(true);
     setUserRole(role);
 
@@ -252,6 +252,18 @@ export default function GolfStudentApp() {
       try {
         const stateRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appState', 'current');
         await setDoc(stateRef, { isLoggedIn: true, userRole: role }, { merge: true });
+
+        // 교습가 연동을 위해 public 디렉토리에 유저 정보 저장
+        if (email) {
+          const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'directory', user.uid);
+          await setDoc(dirRef, {
+            uid: user.uid,
+            email: email,
+            name: email.split('@')[0],
+            role: role,
+            createdAt: Date.now()
+          }, { merge: true });
+        }
       } catch (e) {
         console.warn("Login save error", e);
       }
@@ -451,7 +463,7 @@ export default function GolfStudentApp() {
   }
 
   if (userRole === 'instructor') {
-    return <InstructorApp onLogout={handleLogout} />;
+    return <InstructorApp onLogout={handleLogout} user={user} db={db} appId={appId} />;
   }
 
   const renderTabContent = () => {
@@ -887,7 +899,8 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
             console.warn('Account save error', e);
           }
         }
-        onLoginSuccess(role);
+        // 이메일도 전달하여 handleLoginSuccess에서 directory에 저장할 수 있게 함
+        onLoginSuccess(role, email);
       } else {
         alert('인증번호가 일치하지 않습니다. 다시 확인해주세요.');
       }
@@ -2952,39 +2965,82 @@ function PaymentModal({ onClose, onSuccess }) {
   );
 }
 
-function InstructorApp({ onLogout }) {
+function InstructorApp({ onLogout, user, db, appId }) {
   const [studentEmail, setStudentEmail] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false); 
   
-  const [students, setStudents] = useState([
-    { id: 1, email: 'tiger.woods@example.com', name: '타이거 우즈', lastRound: '2026.03.08', avgScore: 68, scores: initialScores, practiceRecords: initialPracticeRecords },
-    { id: 2, email: 'rory@example.com', name: '로리 맥길로이', lastRound: '2026.03.05', avgScore: 69, scores: initialScores.slice(0, 2), practiceRecords: [] },
-  ]);
-
+  const [myStudents, setMyStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [currentTab, setCurrentTab] = useState('dashboard');
+  
+  // 리얼타임 데이터 저장을 위한 State
+  const [studentScores, setStudentScores] = useState([]);
+  const [studentPractice, setStudentPractice] = useState([]);
   const [selectedScore, setSelectedScore] = useState(null); 
   const [analysisContext, setAnalysisContext] = useState(null);
 
-  const handleAddStudent = () => {
+  // 1. 등록된 내 학생 리스트 실시간 로드
+  useEffect(() => {
+    if (!user || !db) return;
+    const myStudentsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'myStudents');
+    const unsubscribe = onSnapshot(myStudentsRef, (snapshot) => {
+      const loaded = snapshot.docs.map(doc => doc.data());
+      // 최신 등록 순
+      setMyStudents(loaded.sort((a,b) => b.createdAt - a.createdAt));
+    }, (error) => console.warn("Instructor students load error", error));
+
+    return () => unsubscribe();
+  }, [user, db, appId]);
+
+  // 2. 선택된 학생의 스코어 & 연습기록 실시간 로드
+  useEffect(() => {
+    if (!selectedStudent || !db) return;
+    
+    const uid = selectedStudent.uid;
+    const scoresRef = collection(db, 'artifacts', appId, 'users', uid, 'scores');
+    const unsubScores = onSnapshot(scoresRef, snap => {
+      const loaded = snap.docs.map(d => ({id: Number(d.id), ...d.data()})).sort((a,b)=>a.id-b.id);
+      setStudentScores(loaded);
+    }, err => console.warn("Student scores load error", err));
+
+    const pracRef = collection(db, 'artifacts', appId, 'users', uid, 'practice');
+    const unsubPrac = onSnapshot(pracRef, snap => {
+      const loaded = snap.docs.map(d => ({id: Number(d.id), ...d.data()})).sort((a,b)=>b.id-a.id);
+      setStudentPractice(loaded);
+    }, err => console.warn("Student practice load error", err));
+
+    return () => { 
+      unsubScores(); 
+      unsubPrac(); 
+    };
+  }, [selectedStudent, db, appId]);
+
+
+  // Firebase Directory에서 학생 검색 및 등록
+  const handleAddStudent = async () => {
     if (!studentEmail || !studentEmail.includes('@')) {
       alert('정확한 학생의 이메일을 입력해주세요.');
       return;
     }
-    
-    const newStudent = {
-      id: Date.now(),
-      email: studentEmail,
-      name: studentEmail.split('@')[0], 
-      lastRound: '기록 없음',
-      avgScore: '-',
-      scores: [],
-      practiceRecords: [] 
-    };
-    
-    setStudents([newStudent, ...students]);
-    setStudentEmail('');
-    alert('학생이 성공적으로 등록되었습니다!\n추후 해당 학생의 데이터를 이곳에서 연동하여 볼 수 있습니다.');
+
+    try {
+      const dirRef = collection(db, 'artifacts', appId, 'public', 'data', 'directory');
+      const snapshot = await getDocs(dirRef);
+      const allUsers = snapshot.docs.map(d => d.data());
+      const foundStudent = allUsers.find(u => u.email === studentEmail && u.role === 'student');
+
+      if (foundStudent) {
+        const myStudentRef = doc(db, 'artifacts', appId, 'users', user.uid, 'myStudents', foundStudent.uid);
+        await setDoc(myStudentRef, { ...foundStudent, createdAt: Date.now() });
+        alert(`${foundStudent.name} 학생이 성공적으로 연동되었습니다!`);
+        setStudentEmail('');
+      } else {
+        alert('해당 이메일로 가입된 학생 계정을 찾을 수 없습니다.');
+      }
+    } catch (e) {
+      console.error("Student search error", e);
+      alert('학생 검색 중 오류가 발생했습니다.');
+    }
   };
 
   const handleBackToList = () => {
@@ -2993,51 +3049,37 @@ function InstructorApp({ onLogout }) {
     setSelectedScore(null);
   };
 
-  const handleSaveInstructorComment = (scoreId, comment) => {
-    if (!selectedStudent) return;
-
-    // 업데이트할 스코어 찾기 및 변경
-    const updatedScores = selectedStudent.scores.map(s => 
-      s.id === scoreId ? { ...s, instructorComment: comment } : s
-    );
-
-    // 선택된 학생 업데이트
-    const updatedStudent = { ...selectedStudent, scores: updatedScores };
-    setSelectedStudent(updatedStudent);
-
-    // 전체 학생 목록 업데이트
-    setStudents(prev => prev.map(st => 
-      st.id === selectedStudent.id ? updatedStudent : st
-    ));
-
-    // 현재 보고 있는 상세 스코어 뷰에도 즉시 반영
-    setSelectedScore(prev => ({...prev, instructorComment: comment}));
+  const handleSaveInstructorComment = async (scoreId, comment) => {
+    if (!selectedStudent || !db) return;
+    try {
+      const scoreRef = doc(db, 'artifacts', appId, 'users', selectedStudent.uid, 'scores', scoreId.toString());
+      await setDoc(scoreRef, { instructorComment: comment }, { merge: true });
+    } catch (e) {
+      console.warn("Instructor comment save error", e);
+      alert('코멘트 저장 중 오류가 발생했습니다.');
+    }
   };
 
-  const handleSavePracticeComment = (recordId, comment) => {
-    if (!selectedStudent) return;
-
-    // 업데이트할 연습기록 찾기 및 변경
-    const updatedRecords = (selectedStudent.practiceRecords || []).map(r => 
-      r.id === recordId ? { ...r, instructorComment: comment } : r
-    );
-
-    // 선택된 학생 업데이트
-    const updatedStudent = { ...selectedStudent, practiceRecords: updatedRecords };
-    setSelectedStudent(updatedStudent);
-
-    // 전체 학생 목록 업데이트
-    setStudents(prev => prev.map(st => 
-      st.id === selectedStudent.id ? updatedStudent : st
-    ));
+  const handleSavePracticeComment = async (recordId, comment) => {
+    if (!selectedStudent || !db) return;
+    try {
+      const pracRef = doc(db, 'artifacts', appId, 'users', selectedStudent.uid, 'practice', recordId.toString());
+      await setDoc(pracRef, { instructorComment: comment }, { merge: true });
+    } catch (e) {
+      console.warn("Instructor practice comment save error", e);
+      alert('연습기록 코멘트 저장 중 오류가 발생했습니다.');
+    }
   };
 
   if (selectedStudent) {
+    // 실시간으로 업데이트되는 선택된 스코어 포인터 유지
+    const activeScore = studentScores.find(s => s.id === selectedScore?.id) || selectedScore;
+
     const renderStudentTabContent = () => {
       switch(currentTab) {
         case 'dashboard': 
           return <DashboardView 
-                    scores={selectedStudent.scores} 
+                    scores={studentScores} 
                     isPremium={true} 
                     onScoreClick={(score) => {
                       setSelectedScore(score);
@@ -3046,16 +3088,16 @@ function InstructorApp({ onLogout }) {
                     onDeleteScore={()=>{}}
                  />;
         case 'stats': 
-          return <StatsView scores={selectedStudent.scores} />;
+          return <StatsView scores={studentScores} />;
         case 'practice': 
           return <PracticeView 
-                   records={selectedStudent.practiceRecords || []} 
+                   records={studentPractice} 
                    userRole="instructor" 
                    onSaveComment={handleSavePracticeComment} 
                  />;
         case 'roundDetail': 
           return <RoundDetailView 
-                   score={selectedScore} 
+                   score={activeScore} 
                    onBack={() => setCurrentTab('dashboard')} 
                    onAnalyze={(statType, title, category = 'miss') => {
                      setAnalysisContext({ statType, title, category });
@@ -3066,18 +3108,18 @@ function InstructorApp({ onLogout }) {
                  />;
         case 'missAnalysis': 
           return <MissAnalysisView 
-                   score={selectedScore} 
+                   score={activeScore} 
                    context={analysisContext} 
                    onBack={() => setCurrentTab('roundDetail')} 
                  />;
         case 'puttingAnalysis': 
           return <PuttingAnalysisView 
-                   score={selectedScore} 
+                   score={activeScore} 
                    context={analysisContext} 
                    onBack={() => setCurrentTab('roundDetail')} 
                  />;
         default: 
-          return <DashboardView scores={selectedStudent.scores} onScoreClick={() => {}} onDeleteScore={()=>{}} />;
+          return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={()=>{}} />;
       }
     };
 
@@ -3187,35 +3229,37 @@ function InstructorApp({ onLogout }) {
           <div>
             <div className="flex justify-between items-center mb-3 px-1">
               <h3 className="font-bold text-gray-700">등록된 학생 목록</h3>
-              <span className="text-xs font-bold text-slate-600 bg-slate-200 px-2 py-0.5 rounded-full">총 {students.length}명</span>
+              <span className="text-xs font-bold text-slate-600 bg-slate-200 px-2 py-0.5 rounded-full">총 {myStudents.length}명</span>
             </div>
             
             <div className="space-y-3">
-              {students.map(student => (
-                <div 
-                  key={student.id} 
-                  onClick={() => setSelectedStudent(student)}
-                  className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between cursor-pointer hover:bg-gray-50 hover:border-slate-300 transition-all group active:scale-95"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-lg">
-                      {student.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="font-bold text-gray-800 text-sm mb-0.5">{student.name}</div>
-                      <div className="text-[10px] text-gray-500">{student.email}</div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-4 text-right">
-                    <div className="hidden sm:block">
-                      <div className="text-[10px] text-gray-400 font-bold mb-0.5">평균 타수</div>
-                      <div className="text-sm font-black text-slate-600">{student.avgScore} <span className="text-[10px] font-normal">타</span></div>
-                    </div>
-                    <ChevronRight size={18} className="text-gray-300 group-hover:text-slate-500 transition-colors" />
-                  </div>
+              {myStudents.length === 0 ? (
+                <div className="text-center text-gray-400 py-10 text-sm bg-white rounded-xl border border-dashed border-gray-200">
+                   등록된 학생이 없습니다. 이메일로 학생을 연동해보세요.
                 </div>
-              ))}
+              ) : (
+                myStudents.map(student => (
+                  <div 
+                    key={student.uid} 
+                    onClick={() => setSelectedStudent(student)}
+                    className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex items-center justify-between cursor-pointer hover:bg-gray-50 hover:border-slate-300 transition-all group active:scale-95"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-lg uppercase">
+                        {student.name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="font-bold text-gray-800 text-sm mb-0.5">{student.name}</div>
+                        <div className="text-[10px] text-gray-500">{student.email}</div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 text-right">
+                      <ChevronRight size={18} className="text-gray-300 group-hover:text-slate-500 transition-colors" />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </main>
@@ -3223,4 +3267,3 @@ function InstructorApp({ onLogout }) {
     </div>
   );
 }
-

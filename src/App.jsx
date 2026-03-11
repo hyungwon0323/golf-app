@@ -1061,11 +1061,13 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
   const maxSwipe = 80; 
 
   const handleTouchStart = (e) => {
+    // onDelete가 없으면(교습가 모드 등) 스와이프 무시
+    if (!onDelete) return;
     setTouchStartX(e.targetTouches[0].clientX);
   };
 
   const handleTouchMove = (e) => {
-    if (touchStartX === null) return;
+    if (!onDelete || touchStartX === null) return;
     const currentX = e.targetTouches[0].clientX;
     const diff = touchStartX - currentX;
 
@@ -1077,6 +1079,7 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
   };
 
   const handleTouchEnd = () => {
+    if (!onDelete) return;
     if (swipeOffset > maxSwipe / 2) {
       setSwipeOffset(maxSwipe);
     } else {
@@ -1087,18 +1090,21 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
 
   return (
     <div className="relative border-b border-gray-50 overflow-hidden group">
-      <div className="absolute right-0 top-0 bottom-0 w-[80px] bg-red-500 flex items-center justify-center">
-        <button 
-          onClick={(e) => { e.stopPropagation(); onDelete(score.id); setSwipeOffset(0); }}
-          className="text-white flex flex-col items-center gap-1 w-full h-full justify-center opacity-100 hover:bg-red-600 transition-colors"
-        >
-          <X size={20} />
-          <span className="text-[10px] font-bold">삭제</span>
-        </button>
-      </div>
+      {/* onDelete 함수가 존재할 때만 삭제 버튼 영역 렌더링 */}
+      {onDelete && (
+        <div className="absolute right-0 top-0 bottom-0 w-[80px] bg-red-500 flex items-center justify-center">
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDelete(score.id); setSwipeOffset(0); }}
+            className="text-white flex flex-col items-center gap-1 w-full h-full justify-center opacity-100 hover:bg-red-600 transition-colors"
+          >
+            <X size={20} />
+            <span className="text-[10px] font-bold">삭제</span>
+          </button>
+        </div>
+      )}
 
       <div 
-        className="relative bg-white p-4 flex items-center justify-between cursor-pointer transition-transform duration-200 ease-out sm:group-hover:-translate-x-[80px]"
+        className={`relative bg-white p-4 flex items-center justify-between cursor-pointer transition-transform duration-200 ease-out ${onDelete ? 'sm:group-hover:-translate-x-[80px]' : ''}`}
         style={{ transform: `translateX(-${swipeOffset}px)` }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -3108,7 +3114,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                       setSelectedScore(score);
                       setCurrentTab('roundDetail');
                     }} 
-                    onDeleteScore={()=>{}}
+                    onDeleteScore={null} // 교습가는 삭제 불가
                  />;
         case 'stats': 
           return <StatsView scores={studentScores} />;
@@ -3142,7 +3148,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                    onBack={() => setCurrentTab('roundDetail')} 
                  />;
         default: 
-          return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={()=>{}} />;
+          return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={null} />; // 교습가는 삭제 불가
       }
     };
 

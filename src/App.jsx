@@ -1119,6 +1119,9 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
     setTouchStartX(null);
   };
 
+  const totalOB = score.detailedHoles?.reduce((sum, h) => sum + (h.penaltyOB || 0), 0) || 0;
+  const totalHazard = score.detailedHoles?.reduce((sum, h) => sum + (h.penaltyHazard || 0), 0) || 0;
+
   return (
     <div className="relative border-b border-gray-50 overflow-hidden group">
       {onDelete && (
@@ -1164,6 +1167,12 @@ function SwipeableScoreItem({ score, onClick, onDelete }) {
               {score.isRaining && score.precipitation && <span className="text-blue-500 font-medium">• 🌧️ {score.precipitation}mm</span>}
               {score.wind && <span>• {score.wind}</span>}
             </div>
+            {(totalOB > 0 || totalHazard > 0) && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                {totalOB > 0 && <span className="text-[9px] font-bold bg-red-50 text-red-600 px-1.5 py-0.5 rounded border border-red-100">OB {totalOB}</span>}
+                {totalHazard > 0 && <span className="text-[9px] font-bold bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded border border-orange-100">해저드 {totalHazard}</span>}
+              </div>
+            )}
             {score.roundReflection && (
               <div className="text-[10px] text-emerald-700 mt-1.5 truncate bg-emerald-50/50 px-1.5 py-0.5 rounded border border-emerald-100">
                  <PenTool size={9} className="inline mr-1 mb-0.5" />
@@ -1395,6 +1404,10 @@ function RoundDetailView({ score, onBack, onAnalyze, onEdit, userRole, onSaveIns
           <DetailStatRow label="UP&DOWN 성공률" data={ud} color="text-orange-500" bg="bg-orange-50" icon={<RefreshCw size={14}/>} onClick={() => onAnalyze('ud', 'UP&DOWN 실패 요인')} />
           <div className="border-t border-gray-50"></div>
           <DetailStatRow label="벙커 세이브율" data={bunkerSave} color="text-yellow-600" bg="bg-yellow-50" icon={<Mountain size={14}/>} onClick={() => onAnalyze('bunkerSave', '벙커 세이브 실패 요인')} />
+          <div className="border-t border-gray-50"></div>
+          <DetailStatRow label="OB (아웃오브바운즈)" valueText={`${totalPenaltyOB}회`} color="text-red-600" bg="bg-red-50" icon={<span className="text-[10px] font-black leading-none">OB</span>} />
+          <div className="border-t border-gray-50"></div>
+          <DetailStatRow label="해저드 (페널티구역)" valueText={`${totalPenaltyHazard}회`} color="text-orange-600" bg="bg-orange-50" icon={<span className="text-[10px] font-black leading-none">HZ</span>} />
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
@@ -1486,21 +1499,25 @@ function RoundDetailView({ score, onBack, onAnalyze, onEdit, userRole, onSaveIns
   );
 }
 
-function DetailStatRow({ label, data, color, bg, icon, onClick }) {
+function DetailStatRow({ label, data, valueText, color, bg, icon, onClick }) {
   return (
     <div 
       className={`flex items-center justify-between ${onClick ? 'cursor-pointer hover:bg-gray-50 p-2 -m-2 rounded-xl transition-colors active:bg-gray-100' : ''}`}
       onClick={onClick}
     >
       <div className="flex items-center gap-2">
-        <div className={`p-1.5 rounded-lg ${bg} ${color}`}>
+        <div className={`w-7 h-7 flex items-center justify-center rounded-lg ${bg} ${color}`}>
           {icon}
         </div>
         <span className="text-sm font-bold text-gray-700">{label}</span>
       </div>
       <div className="text-right flex items-center gap-2">
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-400 font-medium">{data.successes} / {data.tries}</span>
+          {valueText ? (
+            <span className="text-sm font-black text-gray-700">{valueText}</span>
+          ) : (
+            <span className="text-xs text-gray-400 font-medium">{data?.successes} / {data?.tries}</span>
+          )}
         </div>
       </div>
     </div>

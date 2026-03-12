@@ -45,25 +45,26 @@ import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged }
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, getDocs } from 'firebase/firestore'; 
 
 // --- [Firebase Initialization] ---
-let app, auth, db;
-const firebaseConfig = {
-  apiKey: "AIzaSyAKyBw7Ca5Zi9XGEudGkDPh69_W7T1N-lc",
-  authDomain: "zeno-golf.firebaseapp.com",
-  projectId: "zeno-golf",
-  storageBucket: "zeno-golf.firebasestorage.app",
-  messagingSenderId: "1019871498079",
-  appId: "1:1019871498079:web:b081472d8f442bbbebf0ea",
-  measurementId: "G-ZWDRQV93RV"
-};
+let app, auth, db, appId;
 
 try {
-  app = initializeApp(firebaseConfig);
+  // 환경 변수 기반 설정 적용 (Canvas 환경 호환성), 없으면 하드코딩된 설정 사용
+  const config = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+    apiKey: "AIzaSyAKyBw7Ca5Zi9XGEudGkDPh69_W7T1N-lc",
+    authDomain: "zeno-golf.firebaseapp.com",
+    projectId: "zeno-golf",
+    storageBucket: "zeno-golf.firebasestorage.app",
+    messagingSenderId: "1019871498079",
+    appId: "1:1019871498079:web:b081472d8f442bbbebf0ea",
+    measurementId: "G-ZWDRQV93RV"
+  };
+  app = initializeApp(config);
   auth = getAuth(app);
   db = getFirestore(app);
+  appId = typeof __app_id !== 'undefined' ? __app_id : "zeno-golf-app";
 } catch (e) {
   console.log('Firebase init skipped or failed', e);
 }
-const appId = "zeno-golf-app";
 
 // --- [커스텀 아이콘] ---
 const DriverFaceIcon = ({ size = 14 }) => (
@@ -194,7 +195,7 @@ const initialPracticeRecords = [
   { id: 2, date: '2026-03-09', type: 'short', method: 'random', title: '50m, 30m 어프로치', content: '거리감 맞추기 위주로 연습. 50m는 샌드웨지 3/4 스윙, 30m는 하프 스윙으로 기준을 잡았다. 스핀량은 아직 부족함.' },
 ];
 
-export default function GolfStudentApp() {
+export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -216,6 +217,10 @@ export default function GolfStudentApp() {
   const [addScoreHoles, setAddScoreHoles] = useState(generateInitialHoles());
   const [addScoreCurrentHoleIdx, setAddScoreCurrentHoleIdx] = useState(0);
   const [editingScoreId, setEditingScoreId] = useState(null);
+
+  // 연습기록 임시저장(Draft) 상태 추가
+  const [isAddingPractice, setIsAddingPractice] = useState(false);
+  const [practiceDraft, setPracticeDraft] = useState({ type: 'long', method: 'block', title: '', content: '' });
 
   const resetAddScoreState = () => {
     setAddScoreStep(1);
@@ -333,6 +338,8 @@ export default function GolfStudentApp() {
           if (data.addScoreCurrentHoleIdx !== undefined) setAddScoreCurrentHoleIdx(data.addScoreCurrentHoleIdx);
           if (data.editingScoreId !== undefined) setEditingScoreId(data.editingScoreId);
           if (data.isPremium !== undefined) setIsPremium(data.isPremium);
+          if (data.isAddingPractice !== undefined) setIsAddingPractice(data.isAddingPractice);
+          if (data.practiceDraft) setPracticeDraft(data.practiceDraft);
         }
       } catch (e) {
         console.warn("State load error", e);
@@ -357,7 +364,9 @@ export default function GolfStudentApp() {
           addScoreHoles,
           addScoreCurrentHoleIdx,
           editingScoreId,
-          isPremium
+          isPremium,
+          isAddingPractice,
+          practiceDraft
         }));
         await setDoc(stateRef, stateToSave, { merge: true });
       } catch (e) {
@@ -370,7 +379,7 @@ export default function GolfStudentApp() {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isDataLoaded, user, userEmail]);
+  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isAddingPractice, practiceDraft, isDataLoaded, user, userEmail]);
 
   useEffect(() => {
     if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
@@ -498,7 +507,16 @@ export default function GolfStudentApp() {
                  onReset={resetAddScoreState}
                />;
       case 'stats': return <StatsView scores={scores} />;
-      case 'practice': return <PracticeView records={practiceRecords} onSave={handleSavePractice} onDelete={handleDeletePractice} userRole="student" />; 
+      case 'practice': return <PracticeView 
+          records={practiceRecords} 
+          onSave={handleSavePractice} 
+          onDelete={handleDeletePractice} 
+          userRole="student" 
+          isAddingProp={isAddingPractice}
+          setIsAddingProp={setIsAddingPractice}
+          newRecordProp={practiceDraft}
+          setNewRecordProp={setPracticeDraft}
+        />; 
       case 'roundDetail': 
         return <RoundDetailView 
                  score={selectedScore} 
@@ -753,9 +771,16 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
   );
 }
 
-function PracticeView({ records, onSave, userRole, onSaveComment, onDelete }) {
-  const [isAdding, setIsAdding] = useState(false);
-  const [newRecord, setNewRecord] = useState({ type: 'long', method: 'block', title: '', content: '' });
+function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAddingProp, setIsAddingProp, newRecordProp, setNewRecordProp }) {
+  // 컴포넌트 자체 로컬 상태 (Props가 안 넘어올 때를 대비한 Fallback)
+  const [localIsAdding, setLocalIsAdding] = useState(false);
+  const [localNewRecord, setLocalNewRecord] = useState({ type: 'long', method: 'block', title: '', content: '' });
+
+  // 상위 상태가 있으면 사용하고, 없으면 로컬 상태 사용
+  const isAdding = isAddingProp !== undefined ? isAddingProp : localIsAdding;
+  const setIsAdding = setIsAddingProp || setLocalIsAdding;
+  const newRecord = newRecordProp || localNewRecord;
+  const setNewRecord = setNewRecordProp || setLocalNewRecord;
 
   const handleSave = () => {
     if (!newRecord.title.trim()) {
@@ -3381,4 +3406,3 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
     </div>
   );
 }
-

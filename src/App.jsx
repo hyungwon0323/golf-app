@@ -202,6 +202,7 @@ export default function GolfStudentApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userRole, setUserRole] = useState('student'); 
   const [userEmail, setUserEmail] = useState(''); 
+  const [instructorEmail, setInstructorEmail] = useState(''); // 학생 연동용 교습가 이메일 상태 추가
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [scores, setScores] = useState([]);
   const [practiceRecords, setPracticeRecords] = useState(initialPracticeRecords); 
@@ -333,6 +334,7 @@ export default function GolfStudentApp() {
           if (data.addScoreCurrentHoleIdx !== undefined) setAddScoreCurrentHoleIdx(data.addScoreCurrentHoleIdx);
           if (data.editingScoreId !== undefined) setEditingScoreId(data.editingScoreId);
           if (data.isPremium !== undefined) setIsPremium(data.isPremium);
+          if (data.instructorEmail !== undefined) setInstructorEmail(data.instructorEmail);
         }
       } catch (e) {
         console.warn("State load error", e);
@@ -357,7 +359,8 @@ export default function GolfStudentApp() {
           addScoreHoles,
           addScoreCurrentHoleIdx,
           editingScoreId,
-          isPremium
+          isPremium,
+          instructorEmail
         }));
         await setDoc(stateRef, stateToSave, { merge: true });
       } catch (e) {
@@ -370,7 +373,7 @@ export default function GolfStudentApp() {
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isDataLoaded, user, userEmail]);
+  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isDataLoaded, user, userEmail, instructorEmail]);
 
   useEffect(() => {
     if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
@@ -499,6 +502,14 @@ export default function GolfStudentApp() {
                />;
       case 'stats': return <StatsView scores={scores} />;
       case 'practice': return <PracticeView records={practiceRecords} onSave={handleSavePractice} onDelete={handleDeletePractice} userRole="student" />; 
+      case 'schedule': 
+        return <StudentScheduleWrapper 
+                 userEmail={userEmail} 
+                 instructorEmail={instructorEmail} 
+                 setInstructorEmail={setInstructorEmail} 
+                 db={db} 
+                 appId={appId} 
+               />;
       case 'roundDetail': 
         return <RoundDetailView 
                  score={selectedScore} 
@@ -587,7 +598,17 @@ export default function GolfStudentApp() {
               {showUserMenu && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)}></div>
-                  <div className="absolute right-0 mt-2 w-32 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 animate-fadeIn">
+                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 animate-fadeIn">
+                    <button 
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        setCurrentTab('schedule');
+                      }}
+                      className="w-full text-left px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 border-b border-gray-100"
+                    >
+                      <Calendar size={16} className="text-emerald-500" />
+                      스케줄 관리
+                    </button>
                     <button 
                       onClick={() => {
                         setShowUserMenu(false);
@@ -2815,7 +2836,7 @@ function StatsView({ scores }) {
             })}
          </div>
 
-         {/* 동적 선형 그래프 (SVG 및 터치 인터랙티브 데이터 카드 적용) */}
+         {/* 동적 선형 그래프 */}
          {chartScores.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center text-sm font-medium text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
               <Activity size={24} className="mb-2 text-gray-300" />
@@ -2936,147 +2957,331 @@ function StatsView({ scores }) {
   );
 }
 
-function PremiumView({ isPremium, setShowPaymentModal }) {
-  if (isPremium) {
-    return (
-      <div className="p-8 text-center animate-fadeIn space-y-6 flex flex-col items-center justify-center min-h-[60vh]">
-        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
-          <Coffee size={40} />
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">커피 잘 마셨습니다! ☕</h2>
-          <p className="text-gray-600 text-sm">보내주신 따뜻한 커피 덕분에 <br/>오늘도 으쌰으쌰 개발 중입니다!</p>
-        </div>
-        <div className="w-full bg-white p-5 rounded-xl border border-gray-200 shadow-sm text-left mt-4 space-y-4">
-           <h3 className="font-bold text-sm text-gray-800 border-b pb-2">나의 후원 내역</h3>
-           <div className="flex justify-between text-sm">
-             <span className="text-gray-500">후원 항목</span>
-             <span className="font-semibold text-gray-800">개발자 커피 사주기 (₩4,500)</span>
-           </div>
-           <div className="flex justify-between text-sm">
-             <span className="text-gray-500">마지막 후원일</span>
-             <span className="font-semibold text-gray-800">방금 전</span>
-           </div>
-        </div>
-      </div>
-    );
+// --- [스케줄러 (달력) 뷰 컴포넌트] ---
+function ScheduleView({ ownerEmail, ownerRole, isReadOnly, db, appId, onBack }) {
+  const [events, setEvents] = useState([]);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDateStr, setSelectedDateStr] = useState(new Date().toISOString().split('T')[0]);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newEvent, setNewEvent] = useState({ title: '', type: ownerRole === 'student' ? 'practice' : 'lesson' });
+
+  // 스케줄 데이터 불러오기
+  useEffect(() => {
+    if (!ownerEmail || !db) return;
+    const scheduleRef = collection(db, 'artifacts', appId, 'users', ownerEmail, 'schedule');
+    const unsubscribe = onSnapshot(scheduleRef, (snapshot) => {
+      const loadedEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEvents(loadedEvents);
+    }, (err) => console.warn("Schedule sync error", err));
+    return () => unsubscribe();
+  }, [ownerEmail, db, appId]);
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  
+  const days = [];
+  for (let i = 0; i < firstDayOfMonth; i++) {
+    days.push(null);
+  }
+  for (let i = 1; i <= daysInMonth; i++) {
+    days.push(i);
   }
 
+  const handlePrevMonth = () => {
+    setCurrentDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate(new Date(year, month + 1, 1));
+  };
+
+  const handleDayClick = (day) => {
+    if (!day) return;
+    const str = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    setSelectedDateStr(str);
+    setIsAdding(false);
+  };
+
+  const handleSaveEvent = async () => {
+    if (!newEvent.title.trim()) {
+      alert('일정 내용을 입력해주세요.');
+      return;
+    }
+    if (db && ownerEmail) {
+      try {
+        const id = Date.now().toString();
+        const docRef = doc(db, 'artifacts', appId, 'users', ownerEmail, 'schedule', id);
+        await setDoc(docRef, {
+          date: selectedDateStr,
+          title: newEvent.title,
+          type: newEvent.type,
+          createdAt: Date.now()
+        });
+        setNewEvent({ ...newEvent, title: '' });
+        setIsAdding(false);
+      } catch (err) {
+        console.warn("Save event error", err);
+      }
+    }
+  };
+
+  const handleDeleteEvent = async (eventId) => {
+    if (isReadOnly || !db || !ownerEmail) return;
+    if (window.confirm('이 일정을 삭제하시겠습니까?')) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', ownerEmail, 'schedule', eventId));
+      } catch (err) {
+        console.warn("Delete event error", err);
+      }
+    }
+  };
+
+  const selectedDateEvents = events.filter(e => e.date === selectedDateStr).sort((a,b) => a.createdAt - b.createdAt);
+
+  const getEventTypeStyle = (type) => {
+    if (ownerRole === 'student') {
+      switch(type) {
+        case 'practice': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+        case 'tournament': return 'bg-blue-100 text-blue-700 border-blue-200';
+        default: return 'bg-gray-100 text-gray-700 border-gray-200';
+      }
+    } else {
+      switch(type) {
+        case 'lesson': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+        case 'off': return 'bg-red-100 text-red-700 border-red-200';
+        case 'external': return 'bg-orange-100 text-orange-700 border-orange-200';
+        default: return 'bg-gray-100 text-gray-700 border-gray-200';
+      }
+    }
+  };
+
+  const getEventTypeLabel = (type) => {
+    if (ownerRole === 'student') {
+      switch(type) {
+        case 'practice': return '연습/레슨';
+        case 'tournament': return '시합';
+        default: return '기타';
+      }
+    } else {
+      switch(type) {
+        case 'lesson': return '레슨';
+        case 'off': return '휴무';
+        case 'external': return '외부일정/출국';
+        default: return '기타';
+      }
+    }
+  };
+
+  const studentTypes = [{id: 'practice', label: '연습/레슨'}, {id: 'tournament', label: '시합'}, {id: 'other', label: '기타'}];
+  const instructorTypes = [{id: 'lesson', label: '레슨'}, {id: 'off', label: '휴무'}, {id: 'external', label: '외부일정/출국'}, {id: 'other', label: '기타'}];
+  const availableTypes = ownerRole === 'student' ? studentTypes : instructorTypes;
+
   return (
-    <div className="p-5 animate-fadeIn">
-      <div className="text-center mb-8 mt-4">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">개발자에게 커피 한 잔 사주기 🥺</h2>
-        <p className="text-gray-500 text-sm px-2">앱이 마음에 드셨다면, 밤샘 코딩하는 개발자를 위해 따뜻한 커피 한 잔 어떠신가요?</p>
+    <div className="p-5 animate-fadeIn pb-32">
+      {onBack && (
+        <button onClick={onBack} className="mb-4 text-gray-500 hover:text-gray-800 flex items-center gap-1 text-sm font-bold">
+          <ChevronLeft size={16} /> 뒤로 가기
+        </button>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <button onClick={handlePrevMonth} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full"><ChevronLeft size={20}/></button>
+          <h3 className="text-lg font-black text-gray-800">{year}년 {month + 1}월</h3>
+          <button onClick={handleNextMonth} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full"><ChevronRight size={20}/></button>
+        </div>
+
+        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+          {['일', '월', '화', '수', '목', '금', '토'].map((day, i) => (
+            <div key={day} className={`text-[10px] font-bold pb-1 ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-400'}`}>
+              {day}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {days.map((day, idx) => {
+            const dateStr = day ? `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null;
+            const isSelected = dateStr === selectedDateStr;
+            const dayEvents = dateStr ? events.filter(e => e.date === dateStr) : [];
+            const isToday = dateStr === new Date().toISOString().split('T')[0];
+
+            return (
+              <div key={idx} className="aspect-square flex flex-col items-center justify-start pt-1 cursor-pointer relative" onClick={() => handleDayClick(day)}>
+                {day && (
+                  <>
+                    <div className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold transition-colors z-10
+                      ${isSelected ? 'bg-emerald-500 text-white shadow-sm' : isToday ? 'bg-gray-100 text-emerald-600' : 'text-gray-700 hover:bg-gray-50'}
+                    `}>
+                      {day}
+                    </div>
+                    {dayEvents.length > 0 && (
+                      <div className="flex gap-0.5 mt-0.5 z-0">
+                        {dayEvents.slice(0,3).map(e => (
+                          <div key={e.id} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: e.type === 'tournament' ? '#3b82f6' : e.type === 'off' ? '#ef4444' : '#10b981' }}></div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="space-y-4">
-        <div className="bg-white rounded-2xl p-6 border-2 border-emerald-500 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">DONATION</div>
-          <h3 className="text-xl font-bold text-gray-800 mb-1">커피 한 잔 후원 ☕</h3>
-          <div className="text-3xl font-black text-gray-900 mb-4">₩4,500 <span className="text-sm font-normal text-gray-500">/ 1회</span></div>
-          
-          <ul className="space-y-3 mb-6">
-            <li className="flex items-center gap-2 text-sm text-gray-700">
-              <CheckCircle size={16} className="text-emerald-500" /> 개발자의 혈중 카페인 농도 유지
-            </li>
-            <li className="flex items-center gap-2 text-sm text-gray-700">
-              <CheckCircle size={16} className="text-emerald-500" /> 버그 없는 쾌적한 앱 업데이트
-            </li>
-            <li className="flex items-center gap-2 text-sm text-gray-700">
-              <CheckCircle size={16} className="text-emerald-500" /> 개발자의 사랑과 감사 (무한 제공)
-            </li>
-          </ul>
+      <div>
+        <div className="flex justify-between items-center mb-3 px-1">
+          <h4 className="font-bold text-gray-800 text-sm">
+            {selectedDateStr.split('-')[1]}월 {selectedDateStr.split('-')[2]}일 일정
+          </h4>
+          {!isReadOnly && !isAdding && (
+            <button onClick={() => setIsAdding(true)} className="text-[10px] font-bold bg-emerald-50 text-emerald-600 px-2 py-1 rounded-md hover:bg-emerald-100">
+              + 일정 추가
+            </button>
+          )}
+        </div>
 
-          <button 
-            onClick={() => setShowPaymentModal(true)}
-            className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl hover:bg-emerald-700 transition-colors shadow-md flex items-center justify-center gap-2"
-          >
-            <CreditCard size={18} /> 결제하고 시작하기
-          </button>
+        {isAdding && !isReadOnly && (
+          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-4 animate-slideUp">
+            <div className="flex gap-2 mb-3">
+              {availableTypes.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setNewEvent({...newEvent, type: t.id})}
+                  className={`flex-1 py-1.5 text-[10px] font-bold rounded border transition-colors ${newEvent.type === t.id ? 'bg-gray-800 text-white border-gray-800' : 'bg-gray-50 text-gray-500 border-gray-200'}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <input 
+              type="text" 
+              value={newEvent.title}
+              onChange={e => setNewEvent({...newEvent, title: e.target.value})}
+              placeholder="일정 내용 입력" 
+              className="w-full text-sm p-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 mb-3"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setIsAdding(false)} className="text-xs font-bold text-gray-400 px-3 py-1.5 hover:bg-gray-50 rounded-lg">취소</button>
+              <button onClick={handleSaveEvent} className="text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded-lg shadow-sm">저장</button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {selectedDateEvents.length === 0 ? (
+            <div className="text-center text-xs text-gray-400 py-8 bg-white rounded-xl border border-dashed border-gray-200">
+              일정이 없습니다.
+            </div>
+          ) : (
+            selectedDateEvents.map(ev => (
+              <div key={ev.id} className={`bg-white p-3 rounded-xl border shadow-sm flex items-center justify-between group ${getEventTypeStyle(ev.type)} bg-opacity-20`}>
+                <div>
+                  <div className="text-[9px] font-black opacity-70 mb-0.5">{getEventTypeLabel(ev.type)}</div>
+                  <div className="text-sm font-bold text-gray-800">{ev.title}</div>
+                </div>
+                {!isReadOnly && (
+                  <button onClick={() => handleDeleteEvent(ev.id)} className="text-red-400 hover:text-red-600 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function PaymentModal({ onClose, onSuccess }) {
-  const [step, setStep] = useState(1); 
+// --- [학생을 위한 스케줄 래퍼 컴포넌트] ---
+function StudentScheduleWrapper({ userEmail, instructorEmail, setInstructorEmail, db, appId }) {
+  const [viewMode, setViewMode] = useState('my'); // 'my' | 'instructor'
+  const [tempEmail, setTempEmail] = useState(instructorEmail || '');
+  const [isLinking, setIsLinking] = useState(false);
 
-  const handlePay = () => {
-    setStep(2);
-    setTimeout(() => {
-      setStep(3);
-      setTimeout(() => {
-        onSuccess();
-      }, 1500);
-    }, 2000);
+  const handleLinkInstructor = () => {
+    if (!tempEmail || !tempEmail.includes('@')) {
+      alert('정확한 이메일 주소를 입력해주세요.');
+      return;
+    }
+    const encoded = tempEmail.replace(/[\.\#\$\[\]]/g, '_');
+    setInstructorEmail(encoded);
+    setIsLinking(false);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/60 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden relative animate-slideUp">
-        {step === 1 && (
-          <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10">
-            <X size={24} />
-          </button>
-        )}
-
-        <div className="p-6">
-          {step === 1 && (
-            <>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">결제 수단 선택</h2>
-              <p className="text-sm text-gray-500 mb-6">개발자 커피 후원 (₩4,500)</p>
-
-              <div className="space-y-3 mb-6">
-                <label className="flex items-center p-4 border border-emerald-500 bg-emerald-50 rounded-xl cursor-pointer">
-                  <input type="radio" name="payment" defaultChecked className="form-radio text-emerald-600 focus:ring-emerald-500 h-5 w-5" />
-                  <span className="ml-3 font-medium text-emerald-900">신용/체크카드 (앱카드)</span>
-                </label>
-                <label className="flex items-center p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50">
-                  <input type="radio" name="payment" className="form-radio text-emerald-600 focus:ring-emerald-500 h-5 w-5" />
-                  <span className="ml-3 font-medium text-gray-700">카카오페이</span>
-                </label>
-                <label className="flex items-center p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50">
-                  <input type="radio" name="payment" className="form-radio text-emerald-600 focus:ring-emerald-500 h-5 w-5" />
-                  <span className="ml-3 font-medium text-gray-700">네이버페이</span>
-                </label>
-              </div>
-
-              <div className="text-xs text-gray-400 mb-6 bg-gray-50 p-3 rounded-lg">
-                * 본 결제창은 테스트용 모의 환경입니다. 실제 금액이 청구되지 않습니다.
-              </div>
-
-              <button 
-                onClick={handlePay}
-                className="w-full bg-gray-900 text-white font-bold text-lg py-4 rounded-xl shadow-lg hover:bg-black transition-colors"
-              >
-                4,500원 결제하기
-              </button>
-            </>
-          )}
-
-          {step === 2 && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-4">
-              <div className="w-12 h-12 border-4 border-gray-200 border-t-emerald-600 rounded-full animate-spin"></div>
-              <h3 className="font-bold text-gray-800">안전하게 결제를 진행하고 있습니다...</h3>
-              <p className="text-sm text-gray-500">창을 닫지 마세요.</p>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-4 animate-fadeIn">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-500 mb-2">
-                <CheckCircle size={40} />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900">결제 완료!</h3>
-              <p className="text-gray-500 text-center text-sm">개발자에게 커피가 전달되었습니다.<br/>잠시 후 화면으로 이동합니다.</p>
-            </div>
-          )}
-        </div>
+    <div className="flex flex-col h-full w-full">
+      <div className="flex bg-white p-2 border-b border-gray-200 gap-2 sticky top-0 z-10">
+        <button 
+          onClick={() => setViewMode('my')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${viewMode === 'my' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+        >
+          내 스케줄
+        </button>
+        <button 
+          onClick={() => setViewMode('instructor')}
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${viewMode === 'instructor' ? 'bg-slate-700 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+        >
+          교습가 스케줄
+        </button>
       </div>
+
+      {viewMode === 'my' ? (
+        <ScheduleView ownerEmail={userEmail} ownerRole="student" isReadOnly={false} db={db} appId={appId} />
+      ) : (
+        instructorEmail ? (
+          <div className="relative">
+            <div className="bg-slate-50 border-b border-slate-200 py-1.5 px-4 flex justify-between items-center shadow-sm">
+              <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                <Eye size={12}/> 연동된 교습가 일정 관전 중
+              </span>
+              <button onClick={() => { setInstructorEmail(''); setTempEmail(''); }} className="text-[9px] text-slate-400 hover:text-red-500 underline">
+                연동 해제
+              </button>
+            </div>
+            <ScheduleView ownerEmail={instructorEmail} ownerRole="instructor" isReadOnly={true} db={db} appId={appId} />
+          </div>
+        ) : (
+          <div className="p-6 flex flex-col items-center justify-center text-center mt-10 animate-fadeIn">
+            <div className="w-16 h-16 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mb-4">
+              <User size={32} />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">교습가 스케줄 연동</h3>
+            <p className="text-xs text-gray-500 mb-6 break-keep">
+              담당 교습가님의 앱 가입 이메일을 입력하면, 휴무일이나 레슨 일정을 확인할 수 있습니다.
+            </p>
+            
+            {isLinking ? (
+              <div className="w-full max-w-xs animate-slideUp bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                <input 
+                  type="email" 
+                  value={tempEmail}
+                  onChange={(e) => setTempEmail(e.target.value)}
+                  placeholder="instructor@example.com"
+                  className="w-full p-2.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-500 mb-3 text-center font-medium"
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => setIsLinking(false)} className="flex-1 py-2 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg hover:bg-gray-200">취소</button>
+                  <button onClick={handleLinkInstructor} className="flex-1 py-2 text-xs font-bold text-white bg-slate-700 rounded-lg shadow-sm hover:bg-slate-800">연동하기</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setIsLinking(true)} className="bg-slate-700 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-md hover:bg-slate-800 transition-colors">
+                이메일 입력하여 연동하기
+              </button>
+            )}
+          </div>
+        )
+      )}
     </div>
   );
 }
+
 
 function InstructorApp({ onLogout, userEmail, user, db, appId }) {
   const [studentEmail, setStudentEmail] = useState('');
@@ -3084,28 +3289,24 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
   
   const [myStudents, setMyStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [currentTab, setCurrentTab] = useState('dashboard');
+  const [currentTab, setCurrentTab] = useState('dashboard'); // dashboard | stats | practice | roundDetail | missAnalysis | puttingAnalysis | my_schedule | student_schedule
   
-  // 리얼타임 데이터 저장을 위한 State
   const [studentScores, setStudentScores] = useState([]);
   const [studentPractice, setStudentPractice] = useState([]);
   const [selectedScore, setSelectedScore] = useState(null); 
   const [analysisContext, setAnalysisContext] = useState(null);
 
-  // 1. 등록된 내 학생 리스트 실시간 로드
   useEffect(() => {
     if (!userEmail || !db) return;
     const myStudentsRef = collection(db, 'artifacts', appId, 'users', userEmail, 'myStudents');
     const unsubscribe = onSnapshot(myStudentsRef, (snapshot) => {
       const loaded = snapshot.docs.map(doc => doc.data());
-      // 최신 등록 순
       setMyStudents(loaded.sort((a,b) => b.createdAt - a.createdAt));
     }, (error) => console.warn("Instructor students load error", error));
 
     return () => unsubscribe();
   }, [userEmail, db, appId]);
 
-  // 2. 선택된 학생의 스코어 & 연습기록 실시간 로드
   useEffect(() => {
     if (!selectedStudent || !db) return;
     
@@ -3129,7 +3330,6 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
   }, [selectedStudent, db, appId]);
 
 
-  // Firebase Directory에서 학생 검색 및 등록
   const handleAddStudent = async () => {
     if (!studentEmail || !studentEmail.includes('@')) {
       alert('정확한 학생의 이메일을 입력해주세요.');
@@ -3184,8 +3384,29 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
     }
   };
 
+  // 교습가 본인 스케줄 뷰 렌더링
+  if (!selectedStudent && currentTab === 'my_schedule') {
+     return (
+        <div className="min-h-screen bg-gray-100 flex justify-center font-sans">
+          <div className="w-full max-w-md bg-white min-h-screen shadow-2xl relative flex flex-col">
+            <header className="bg-slate-800 text-white p-4 sticky top-0 z-10 flex items-center shadow-md gap-3">
+              <button onClick={() => setCurrentTab('dashboard')} className="p-1 -ml-1 text-slate-300 hover:text-white transition-colors">
+                <ChevronLeft size={24} />
+              </button>
+              <h1 className="text-lg font-bold flex-1">내 스케줄 관리</h1>
+              <span className="text-[10px] font-bold text-slate-300 bg-slate-700 px-2 py-1 rounded-full flex items-center gap-1">
+                <Calendar size={12} /> 교습가
+              </span>
+            </header>
+            <main className="flex-1 overflow-y-auto bg-gray-50">
+              <ScheduleView ownerEmail={userEmail} ownerRole="instructor" isReadOnly={false} db={db} appId={appId} />
+            </main>
+          </div>
+        </div>
+     );
+  }
+
   if (selectedStudent) {
-    // 실시간으로 업데이트되는 선택된 스코어 포인터 유지
     const activeScore = studentScores.find(s => s.id === selectedScore?.id) || selectedScore;
 
     const renderStudentTabContent = () => {
@@ -3198,7 +3419,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                       setSelectedScore(score);
                       setCurrentTab('roundDetail');
                     }} 
-                    onDeleteScore={null} // 교습가는 삭제 불가
+                    onDeleteScore={null}
                  />;
         case 'stats': 
           return <StatsView scores={studentScores} />;
@@ -3208,6 +3429,14 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                    userRole="instructor" 
                    onSaveComment={handleSavePracticeComment}
                    onDelete={null} 
+                 />;
+        case 'student_schedule':
+          return <ScheduleView 
+                   ownerEmail={selectedStudent.encodedEmail} 
+                   ownerRole="student" 
+                   isReadOnly={true} 
+                   db={db} 
+                   appId={appId} 
                  />;
         case 'roundDetail': 
           return <RoundDetailView 
@@ -3233,7 +3462,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                    onBack={() => setCurrentTab('roundDetail')} 
                  />;
         default: 
-          return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={null} />; // 교습가는 삭제 불가
+          return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={null} />;
       }
     };
 
@@ -3263,6 +3492,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
             <NavItem icon={<Home />} label="홈 (요약)" isActive={currentTab === 'dashboard'} onClick={() => setCurrentTab('dashboard')} />
             <NavItem icon={<TrendingUp />} label="상세 분석" isActive={currentTab === 'stats'} onClick={() => setCurrentTab('stats')} />
             <NavItem icon={<TargetIcon />} label="연습기록" isActive={currentTab === 'practice'} onClick={() => setCurrentTab('practice')} />
+            <NavItem icon={<Calendar />} label="스케줄" isActive={currentTab === 'student_schedule'} onClick={() => setCurrentTab('student_schedule')} />
           </nav>
         </div>
       </div>
@@ -3289,7 +3519,17 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
             {showUserMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)}></div>
-                <div className="absolute right-0 mt-2 w-32 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 animate-fadeIn">
+                <div className="absolute right-0 mt-2 w-44 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 animate-fadeIn">
+                  <button 
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      setCurrentTab('my_schedule');
+                    }}
+                    className="w-full text-left px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 border-b border-gray-100"
+                  >
+                    <Calendar size={16} className="text-slate-500" />
+                    내 스케줄 관리
+                  </button>
                   <button 
                     onClick={() => {
                       setShowUserMenu(false);

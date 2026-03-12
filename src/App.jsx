@@ -224,8 +224,9 @@ export default function App() {
   const [isAddingPractice, setIsAddingPractice] = useState(false);
   const [practiceDraft, setPracticeDraft] = useState({ type: 'long', method: 'block', title: '', content: '' });
 
-  // 스케줄 모달 상태 추가
+  // 스케줄 및 교습가 연동 상태 추가
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [linkedInstructor, setLinkedInstructor] = useState(null);
 
   const resetAddScoreState = () => {
     setAddScoreStep(1);
@@ -345,6 +346,7 @@ export default function App() {
           if (data.isPremium !== undefined) setIsPremium(data.isPremium);
           if (data.isAddingPractice !== undefined) setIsAddingPractice(data.isAddingPractice);
           if (data.practiceDraft) setPracticeDraft(data.practiceDraft);
+          if (data.linkedInstructor !== undefined) setLinkedInstructor(data.linkedInstructor);
         }
       } catch (e) {
         console.warn("State load error", e);
@@ -353,6 +355,39 @@ export default function App() {
     };
     loadState();
   }, [user, userEmail, isLoggedIn, isAuthReady]);
+
+  useEffect(() => {
+    if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
+
+    const saveState = async () => {
+      try {
+        const stateRef = doc(db, 'artifacts', appId, 'users', userEmail, 'appState', 'current');
+        const stateToSave = JSON.parse(JSON.stringify({
+          isLoggedIn,
+          userRole,
+          currentTab,
+          addScoreStep,
+          addScoreInfo,
+          addScoreHoles,
+          addScoreCurrentHoleIdx,
+          editingScoreId,
+          isPremium,
+          isAddingPractice,
+          practiceDraft,
+          linkedInstructor
+        }));
+        await setDoc(stateRef, stateToSave, { merge: true });
+      } catch (e) {
+        console.warn("State save error", e);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      saveState();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isAddingPractice, practiceDraft, linkedInstructor, isDataLoaded, user, userEmail]);
 
   useEffect(() => {
     if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
@@ -656,6 +691,8 @@ export default function App() {
             db={db} 
             appId={appId} 
             scheduleOwnerRole="student"
+            linkedInstructor={linkedInstructor}
+            onLinkInstructor={setLinkedInstructor}
           />
         )}
       </div>
@@ -3285,8 +3322,14 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                  />;
         case 'schedule':
           return <div className="p-5 animate-fadeIn h-full pb-24">
-                   <h2 className="text-xl font-bold text-gray-800 mb-4">{selectedStudent.name} 학생의 스케줄</h2>
-                   <ScheduleView targetEmail={selectedStudent.encodedEmail} db={db} appId={appId} scheduleOwnerRole="student" />
+                   <div className="flex items-center justify-between mb-4">
+                     <h2 className="text-xl font-bold text-gray-800">{selectedStudent.name} 학생의 스케줄</h2>
+                     <span className="text-[10px] font-bold text-slate-500 bg-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
+                       <Eye size={12} /> 읽기 전용
+                     </span>
+                   </div>
+                   {/* 교습가는 학생의 스케줄을 readOnly=true 상태로 봅니다 */}
+                   <ScheduleView targetEmail={selectedStudent.encodedEmail} db={db} appId={appId} scheduleOwnerRole="student" readOnly={true} />
                  </div>;
         default: 
           return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={null} />; // 교습가는 삭제 불가
@@ -3459,7 +3502,34 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
   );
 }
 
-function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole }) {
+function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole, linkedInstructor, onLinkInstructor }) {
+  const [viewMode, setViewMode] = useState('mine'); // 'mine' or 'instructor'
+  const [inputEmail, setInputEmail] = useState('');
+
+  const handleLink = async () => {
+    if (!inputEmail || !inputEmail.includes('@')) {
+      alert('정확한 교습가의 이메일을 입력해주세요.');
+      return;
+    }
+    try {
+      const dirRef = collection(db, 'artifacts', appId, 'public', 'data', 'directory');
+      const snapshot = await getDocs(dirRef);
+      const allUsers = snapshot.docs.map(d => d.data());
+      const found = allUsers.find(u => u.email === inputEmail && u.role === 'instructor');
+      
+      if (found) {
+         onLinkInstructor(found);
+         alert(`${found.name} 교습가가 성공적으로 연동되었습니다!`);
+         setInputEmail('');
+      } else {
+         alert('해당 이메일로 가입된 교습가 계정을 찾을 수 없습니다.');
+      }
+    } catch (e) {
+      console.warn("Link instructor error", e);
+      alert('교습가 검색 중 오류가 발생했습니다.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
       <div className="w-full max-w-md bg-gray-50 h-full flex flex-col relative animate-slideUp overflow-hidden">
@@ -3467,17 +3537,69 @@ function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole }) {
           <button onClick={onClose} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors">
             <X size={24} />
           </button>
-          <h2 className="text-lg font-bold text-gray-800 ml-2">나의 스케줄</h2>
+          <h2 className="text-lg font-bold text-gray-800 ml-2">스케줄 관리</h2>
         </header>
+
+        {scheduleOwnerRole === 'student' && (
+           <div className="flex bg-gray-200 p-1 mx-4 mt-4 rounded-xl shadow-inner">
+             <button onClick={()=>setViewMode('mine')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode==='mine' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}>나의 스케줄</button>
+             <button onClick={()=>setViewMode('instructor')} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${viewMode==='instructor' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}>교습가 스케줄</button>
+           </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4 pb-20">
-           <ScheduleView targetEmail={targetEmail} db={db} appId={appId} scheduleOwnerRole={scheduleOwnerRole} />
+           {viewMode === 'mine' || scheduleOwnerRole === 'instructor' ? (
+              <ScheduleView targetEmail={targetEmail} db={db} appId={appId} scheduleOwnerRole={scheduleOwnerRole} readOnly={false} />
+           ) : (
+              !linkedInstructor ? (
+                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 mt-2">
+                    <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                       <User size={16} className="text-slate-600" />
+                       교습가 연동
+                    </h3>
+                    <p className="text-xs text-gray-500 mb-4">교습가의 스케줄을 확인하려면 이메일을 연동해주세요.</p>
+                    <div className="flex gap-2">
+                       <div className="relative flex-1">
+                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                             <Mail size={16} className="text-gray-400" />
+                          </div>
+                          <input 
+                             type="email"
+                             value={inputEmail}
+                             onChange={(e) => setInputEmail(e.target.value)}
+                             placeholder="교습가 이메일 입력" 
+                             className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                          />
+                       </div>
+                       <button 
+                          onClick={handleLink}
+                          className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm whitespace-nowrap"
+                       >
+                          연동
+                       </button>
+                    </div>
+                 </div>
+              ) : (
+                 <div className="mt-2 animate-fadeIn">
+                    <div className="flex items-center justify-between bg-emerald-50 px-4 py-3 rounded-xl border border-emerald-100 mb-4 shadow-sm">
+                       <div>
+                          <span className="text-sm font-black text-emerald-900">{linkedInstructor.name} 교습가</span>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-200/50 px-2 py-0.5 rounded-full ml-2">연동됨</span>
+                       </div>
+                       <button onClick={() => { if(window.confirm('교습가 연동을 해제하시겠습니까?')) onLinkInstructor(null); }} className="text-xs font-bold text-emerald-600 hover:text-emerald-800 underline">해제</button>
+                    </div>
+                    {/* 학생이 교습가 스케줄을 볼 때는 readOnly=true 상태로 봅니다 */}
+                    <ScheduleView targetEmail={linkedInstructor.encodedEmail} db={db} appId={appId} scheduleOwnerRole="instructor" readOnly={true} />
+                 </div>
+              )
+           )}
         </div>
       </div>
     </div>
   );
 }
 
-function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole }) {
+function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole, readOnly }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [schedules, setSchedules] = useState([]);
@@ -3515,6 +3637,7 @@ function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole }) {
   }, [db, targetEmail, appId]);
 
   const handleSaveEvent = async () => {
+    if (readOnly) return;
     if (!newEvent.title.trim()) {
       alert('일정 제목을 입력하세요.');
       return;
@@ -3536,6 +3659,7 @@ function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole }) {
   };
 
   const handleDeleteEvent = async (id) => {
+    if (readOnly) return;
     if (window.confirm('이 일정을 삭제하시겠습니까?')) {
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'users', targetEmail, 'schedules', id));
@@ -3609,10 +3733,14 @@ function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole }) {
               <Calendar size={16} className="text-emerald-600"/> 
               {selectedDate.split('-')[1]}월 {selectedDate.split('-')[2]}일 일정
            </h3>
-           <button onClick={() => setIsAdding(true)} className="text-[11px] bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 shadow-sm hover:bg-emerald-700 transition-colors"><Plus size={12}/> 추가</button>
+           {!readOnly && (
+             <button onClick={() => setIsAdding(true)} className="text-[11px] bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 shadow-sm hover:bg-emerald-700 transition-colors">
+               <Plus size={12}/> 추가
+             </button>
+           )}
         </div>
         
-        {isAdding && (
+        {isAdding && !readOnly && (
            <div className="bg-white p-4 rounded-xl shadow-sm border border-emerald-200 mb-4 animate-slideUp">
               <input type="text" placeholder="일정 제목을 입력하세요." value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})} className="w-full mb-3 p-3 bg-gray-50 rounded-lg text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium" />
               <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide pb-1">
@@ -3639,9 +3767,11 @@ function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole }) {
                      <div className="text-sm font-bold text-gray-800">{e.title}</div>
                    </div>
                  </div>
-                 <button onClick={() => handleDeleteEvent(e.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                   <Trash2 size={16} />
-                 </button>
+                 {!readOnly && (
+                   <button onClick={() => handleDeleteEvent(e.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                     <Trash2 size={16} />
+                   </button>
+                 )}
               </div>
            ))}
            {getEventsForDate(selectedDate).length === 0 && !isAdding && (

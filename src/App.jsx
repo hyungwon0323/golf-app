@@ -193,9 +193,18 @@ const generateInitialInfo = () => ({
 });
 
 const initialPracticeRecords = [
-  { id: 1, date: '2026-03-08', type: 'long', method: 'block', title: '드라이버 방향성 교정', content: '백스윙 탑에서 크로스오버 되는 느낌을 잡기 위해 노력함. 임팩트 시 클럽 페이스가 열리는 문제를 신경 썼다.', instructorComment: '백스윙 궤도를 영상으로 찍어서 확인해 보는 것이 좋겠습니다. 잘하고 있어요!' },
-  { id: 2, date: '2026-03-09', type: 'short', method: 'random', title: '50m, 30m 어프로치', content: '거리감 맞추기 위주로 연습. 50m는 샌드웨지 3/4 스윙, 30m는 하프 스윙으로 기준을 잡았다. 스핀량은 아직 부족함.' },
+  { id: 1, date: '2026-03-08', type: 'long', method: 'block', gameType: 'none', title: '드라이버 방향성 교정', content: '백스윙 탑에서 크로스오버 되는 느낌을 잡기 위해 노력함. 임팩트 시 클럽 페이스가 열리는 문제를 신경 썼다.', instructorComment: '백스윙 궤도를 영상으로 찍어서 확인해 보는 것이 좋겠습니다. 잘하고 있어요!' },
+  { id: 2, date: '2026-03-09', type: 'short', method: 'random', gameType: 'none', title: '50m, 30m 어프로치', content: '거리감 맞추기 위주로 연습. 50m는 샌드웨지 3/4 스윙, 30m는 하프 스윙으로 기준을 잡았다. 스핀량은 아직 부족함.' },
 ];
+
+const defaultPracticeDraft = { 
+  type: 'long', 
+  method: 'block', 
+  gameType: 'none', 
+  gameData: Array.from({length: 5}, () => [null, null, null, null]), 
+  title: '', 
+  content: '' 
+};
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -222,7 +231,7 @@ export default function App() {
 
   // 연습기록 임시저장(Draft) 상태 추가
   const [isAddingPractice, setIsAddingPractice] = useState(false);
-  const [practiceDraft, setPracticeDraft] = useState({ type: 'long', method: 'block', title: '', content: '' });
+  const [practiceDraft, setPracticeDraft] = useState(defaultPracticeDraft);
 
   // 스케줄 및 교습가 연동 상태 추가
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -345,7 +354,13 @@ export default function App() {
           if (data.editingScoreId !== undefined) setEditingScoreId(data.editingScoreId);
           if (data.isPremium !== undefined) setIsPremium(data.isPremium);
           if (data.isAddingPractice !== undefined) setIsAddingPractice(data.isAddingPractice);
-          if (data.practiceDraft) setPracticeDraft(data.practiceDraft);
+          if (data.practiceDraft) {
+            setPracticeDraft({ 
+              ...defaultPracticeDraft, 
+              ...data.practiceDraft,
+              gameData: data.practiceDraft.gameData || defaultPracticeDraft.gameData
+            });
+          }
           if (data.linkedInstructor !== undefined) setLinkedInstructor(data.linkedInstructor);
         }
       } catch (e) {
@@ -388,38 +403,6 @@ export default function App() {
 
     return () => clearTimeout(timer);
   }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isAddingPractice, practiceDraft, linkedInstructor, isDataLoaded, user, userEmail]);
-
-  useEffect(() => {
-    if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
-
-    const saveState = async () => {
-      try {
-        const stateRef = doc(db, 'artifacts', appId, 'users', userEmail, 'appState', 'current');
-        const stateToSave = JSON.parse(JSON.stringify({
-          isLoggedIn,
-          userRole,
-          currentTab,
-          addScoreStep,
-          addScoreInfo,
-          addScoreHoles,
-          addScoreCurrentHoleIdx,
-          editingScoreId,
-          isPremium,
-          isAddingPractice,
-          practiceDraft
-        }));
-        await setDoc(stateRef, stateToSave, { merge: true });
-      } catch (e) {
-        console.warn("State save error", e);
-      }
-    };
-
-    const timer = setTimeout(() => {
-      saveState();
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, [isLoggedIn, userRole, currentTab, addScoreStep, addScoreInfo, addScoreHoles, addScoreCurrentHoleIdx, editingScoreId, isPremium, isAddingPractice, practiceDraft, isDataLoaded, user, userEmail]);
 
   useEffect(() => {
     if (!isDataLoaded || !user || !userEmail || !db || !isLoggedIn) return;
@@ -785,15 +768,23 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
         <div className="flex items-center gap-2 mb-2">
           {getRecordTypeBadge(record.type)}
           {getRecordMethodBadge(record.method)}
+          {record.gameType === '100ft_drill' && <span className="bg-emerald-500 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">100ft 드릴</span>}
           <span className="text-[10px] text-gray-400 font-medium ml-auto">{record.date}</span>
         </div>
-        <h3 className="font-bold text-gray-800 mb-2">{record.title}</h3>
-        <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-3 rounded-xl border border-gray-50 mb-3">
-          {record.content}
-        </p>
+        <h3 className="font-bold text-gray-800 mb-3">{record.title}</h3>
+
+        {record.gameType === '100ft_drill' && record.gameData && (
+           <HundredFeetDrillDisplay data={record.gameData} />
+        )}
+
+        {(record.content || record.gameType !== '100ft_drill') && (
+          <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-3 rounded-xl border border-gray-50 mb-3">
+            {record.content || '작성된 내용이 없습니다.'}
+          </p>
+        )}
 
         {(record.instructorComment || userRole === 'instructor') && (
-          <div className="border-t border-gray-100 pt-3">
+          <div className="border-t border-gray-100 pt-3 mt-3">
             <div className="flex justify-between items-center mb-2">
               <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
                 <User size={12} /> 교습가 피드백
@@ -833,10 +824,99 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
   );
 }
 
+function HundredFeetDrillInput({ data, onChange }) {
+  const pts = [5, 10, 15, 20];
+  
+  const toggle = (l, d) => {
+    const nextData = [...data];
+    nextData[l] = [...nextData[l]];
+    const curr = nextData[l][d];
+    nextData[l][d] = curr === null ? 'O' : curr === 'O' ? 'X' : null;
+    onChange(nextData);
+  };
+
+  const getRowScore = (lap) => lap.reduce((sum, val, i) => sum + (val === 'O' ? pts[i] : 0), 0);
+  const totalScore = data.reduce((sum, lap) => sum + getRowScore(lap), 0);
+
+  return (
+    <div className="bg-emerald-50 rounded-2xl p-5 border-2 border-emerald-200 shadow-sm animate-slideUp mt-4">
+      <div className="flex justify-between items-center mb-4">
+        <h4 className="text-base font-black text-emerald-900 flex items-center gap-1.5"><Flag size={18}/> 100ft 드릴 스코어카드</h4>
+        <div className="text-xl font-black text-emerald-700 bg-white px-4 py-2 rounded-xl shadow-md border-2 border-emerald-400">
+           총 {totalScore} <span className="text-[11px] font-bold text-gray-500">/ 250점</span>
+        </div>
+      </div>
+      
+      <div className="text-xs text-emerald-600 mb-4 font-bold bg-emerald-100/50 p-2 rounded-lg">* 빈칸을 터치하여 성공(O) / 실패(X)를 기록하세요.</div>
+      
+      <div className="grid grid-cols-6 gap-2 text-center items-center">
+        <div className="text-xs font-black text-emerald-700 py-1">바퀴</div>
+        {pts.map(p => <div key={p} className="text-xs font-black text-emerald-700 py-1">{p}ft<br/><span className="text-[9px] font-medium text-emerald-500">({p}점)</span></div>)}
+        <div className="text-xs font-black text-emerald-700 py-1">소계</div>
+        
+        {data.map((lap, lIdx) => {
+          const rowScore = getRowScore(lap);
+          return (
+            <React.Fragment key={lIdx}>
+              <div className="text-sm font-black text-emerald-800 flex items-center justify-center bg-emerald-200/50 rounded-xl h-11">{lIdx + 1}</div>
+              {lap.map((res, dIdx) => (
+                <button 
+                  key={dIdx} 
+                  onClick={() => toggle(lIdx, dIdx)}
+                  className={`h-11 flex items-center justify-center rounded-xl border-2 font-black text-lg transition-colors shadow-sm active:scale-95
+                    ${res === 'O' ? 'bg-blue-500 text-white border-blue-600' : res === 'X' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-gray-300 border-gray-200 hover:bg-gray-50'}`}
+                >
+                  {res === 'O' ? 'O' : res === 'X' ? 'X' : '-'}
+                </button>
+              ))}
+              <div className="text-sm font-black text-emerald-900 flex items-center justify-center bg-white rounded-xl border-2 border-emerald-200 shadow-sm h-11">
+                {rowScore}
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HundredFeetDrillDisplay({ data }) {
+  const pts = [5, 10, 15, 20];
+  const totalScore = data.reduce((sum, lap) => sum + lap.reduce((s, v, i) => s + (v === 'O' ? pts[i] : 0), 0), 0);
+
+  return (
+    <div className="bg-emerald-50 rounded-xl p-3 mb-3 border border-emerald-100 shadow-sm">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-xs font-bold text-emerald-800 flex items-center gap-1"><Flag size={12}/> 스코어카드</span>
+        <span className="text-sm font-black text-emerald-700 bg-white px-2 py-0.5 rounded shadow-sm border border-emerald-100">{totalScore} <span className="text-[9px] font-medium text-gray-500">/ 250점</span></span>
+      </div>
+      <div className="grid grid-cols-6 gap-1 text-center">
+        <div className="text-[9px] font-bold text-emerald-600/70 py-1">바퀴</div>
+        {pts.map(p => <div key={p} className="text-[9px] font-bold text-emerald-600/70 py-1">{p}ft</div>)}
+        <div className="text-[9px] font-bold text-emerald-600/70 py-1">점수</div>
+        
+        {data.map((lap, lIdx) => (
+          <React.Fragment key={lIdx}>
+            <div className="text-[10px] font-bold text-emerald-700 flex items-center justify-center bg-emerald-100/50 rounded h-6">{lIdx + 1}</div>
+            {lap.map((res, dIdx) => (
+              <div key={dIdx} className={`rounded flex items-center justify-center h-6 text-xs font-black border ${res === 'O' ? 'bg-blue-500 text-white border-blue-600' : res === 'X' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-gray-300 border-gray-200'}`}>
+                {res === 'O' ? 'O' : res === 'X' ? 'X' : '-'}
+              </div>
+            ))}
+            <div className="text-[10px] font-black text-emerald-700 flex items-center justify-center bg-white rounded border border-emerald-100 h-6">
+              {lap.reduce((s, v, i) => s + (v === 'O' ? pts[i] : 0), 0)}
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAddingProp, setIsAddingProp, newRecordProp, setNewRecordProp }) {
   // 컴포넌트 자체 로컬 상태 (Props가 안 넘어올 때를 대비한 Fallback)
   const [localIsAdding, setLocalIsAdding] = useState(false);
-  const [localNewRecord, setLocalNewRecord] = useState({ type: 'long', method: 'block', title: '', content: '' });
+  const [localNewRecord, setLocalNewRecord] = useState(defaultPracticeDraft);
 
   // 상위 상태가 있으면 사용하고, 없으면 로컬 상태 사용
   const isAdding = isAddingProp !== undefined ? isAddingProp : localIsAdding;
@@ -844,12 +924,37 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
   const newRecord = newRecordProp || localNewRecord;
   const setNewRecord = setNewRecordProp || setLocalNewRecord;
 
+  // localStorage에서 100ft 드릴 데이터 불러오기 (초기 1회 및 게임 모드 전환 시)
+  useEffect(() => {
+    if (isAdding && newRecord.gameType === '100ft_drill') {
+      const draft = localStorage.getItem('putting_game_100ft_draft');
+      if (draft) {
+        try {
+          const parsed = JSON.parse(draft);
+          if (JSON.stringify(newRecord.gameData) !== JSON.stringify(parsed)) {
+            setNewRecord(prev => ({ ...prev, gameData: parsed }));
+          }
+        } catch (e) {
+          console.warn("Parse putting_game_100ft_draft error", e);
+        }
+      }
+    }
+  }, [isAdding, newRecord.gameType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 100ft 드릴 데이터 변경 시 localStorage 자동 저장
+  useEffect(() => {
+    if (isAdding && newRecord.gameType === '100ft_drill' && newRecord.gameData) {
+      localStorage.setItem('putting_game_100ft_draft', JSON.stringify(newRecord.gameData));
+    }
+  }, [isAdding, newRecord.gameType, newRecord.gameData]);
+
   const handleSave = () => {
     if (!newRecord.title.trim()) {
       alert('제목을 입력해주세요.');
       return;
     }
-    if (!newRecord.content.trim()) {
+    // 100ft 드릴인 경우 내용은 필수가 아님
+    if (newRecord.gameType === 'none' && !newRecord.content.trim()) {
       alert('내용을 입력해주세요.');
       return;
     }
@@ -862,7 +967,9 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
 
     onSave(recordToSave);
     setIsAdding(false);
-    setNewRecord({ type: 'long', method: 'block', title: '', content: '' });
+    setNewRecord(defaultPracticeDraft);
+    // 최종 저장 완료 시 localStorage 임시저장 삭제
+    localStorage.removeItem('putting_game_100ft_draft');
   };
 
   if (isAdding) {
@@ -906,13 +1013,44 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
               ].map(m => (
                 <button
                   key={m.id}
-                  onClick={() => setNewRecord({...newRecord, method: m.id})}
+                  onClick={() => {
+                    if (m.id === 'game') {
+                      setNewRecord({...newRecord, method: m.id, gameType: 'none'});
+                    } else {
+                      setNewRecord({...newRecord, method: m.id, gameType: 'none'});
+                    }
+                  }}
                   className={`flex-1 py-2.5 text-xs font-bold rounded-lg border transition-all ${newRecord.method === m.id ? 'bg-blue-600 border-blue-700 text-white shadow-sm' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
                 >
                   {m.label}
                 </button>
               ))}
             </div>
+            
+            {newRecord.method === 'game' && (
+              <div className="mt-3 animate-fadeIn">
+                <label className="block text-[11px] font-bold text-emerald-600 mb-1.5 flex items-center gap-1 uppercase tracking-tight">
+                   <TargetIcon size={12}/> 게임 모드 선택
+                </label>
+                <div className="flex gap-2">
+                   <button onClick={() => setNewRecord({...newRecord, gameType: 'none'})} className={`flex-1 py-2 text-[11px] font-bold rounded-lg border transition-all ${newRecord.gameType === 'none' ? 'bg-emerald-100 border-emerald-500 text-emerald-800 shadow-sm' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>자유 작성</button>
+                   <button 
+                     onClick={() => {
+                        const draft = localStorage.getItem('putting_game_100ft_draft');
+                        let loadedData = newRecord.gameData || Array.from({length: 5}, () => [null, null, null, null]);
+                        if (draft) {
+                            try { loadedData = JSON.parse(draft); } catch(e) {}
+                        }
+                        setNewRecord({...newRecord, gameType: '100ft_drill', type: 'putting', title: newRecord.title || '100ft 드릴', gameData: loadedData});
+                     }} 
+                     className={`flex-1 py-2 text-[11px] font-bold rounded-lg border transition-all ${newRecord.gameType === '100ft_drill' ? 'bg-emerald-100 border-emerald-500 text-emerald-800 shadow-sm' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                   >
+                     100ft 드릴
+                   </button>
+                </div>
+              </div>
+            )}
+
             <p className="text-[10px] text-gray-400 mt-2 ml-1 leading-snug break-keep">
               * <span className="font-bold text-gray-500">블록</span>: 한 가지 동작/클럽 반복 | <span className="font-bold text-gray-500">랜덤</span>: 클럽/타겟 계속 변경 | <span className="font-bold text-gray-500">루틴</span>: 실제 코스처럼 | <span className="font-bold text-gray-500">게임</span>: 스코어링/실전 감각
             </p>
@@ -929,10 +1067,17 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
             />
           </div>
 
+          {newRecord.gameType === '100ft_drill' && (
+             <HundredFeetDrillInput 
+               data={newRecord.gameData || Array.from({length: 5}, () => [null, null, null, null])} 
+               onChange={(newData) => setNewRecord({...newRecord, gameData: newData})} 
+             />
+          )}
+
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-2">연습 내용 / 깨달은 점</label>
+            <label className="block text-sm font-bold text-gray-700 mb-2">{newRecord.gameType === '100ft_drill' ? '게임 소감 / 깨달은 점' : '연습 내용 / 깨달은 점'}</label>
             <textarea 
-              placeholder="오늘 연습에서 집중한 부분이나 깨달은 느낌을 자유롭게 적어주세요." 
+              placeholder={newRecord.gameType === '100ft_drill' ? "오늘 드릴에서 잘 된 부분이나 아쉬운 점을 기록하세요. (선택 사항)" : "오늘 연습에서 집중한 부분이나 깨달은 느낌을 자유롭게 적어주세요."}
               value={newRecord.content}
               onChange={(e) => setNewRecord({...newRecord, content: e.target.value})}
               className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm min-h-[150px] resize-none"

@@ -37,7 +37,9 @@ import {
   LogOut, 
   Crosshair,
   Lock,
-  Target as TargetIcon
+  Target as TargetIcon,
+  Plus,
+  Trash2
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -221,6 +223,9 @@ export default function App() {
   // 연습기록 임시저장(Draft) 상태 추가
   const [isAddingPractice, setIsAddingPractice] = useState(false);
   const [practiceDraft, setPracticeDraft] = useState({ type: 'long', method: 'block', title: '', content: '' });
+
+  // 스케줄 모달 상태 추가
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
 
   const resetAddScoreState = () => {
     setAddScoreStep(1);
@@ -609,6 +614,16 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setShowUserMenu(false);
+                        setShowScheduleModal(true);
+                      }}
+                      className="w-full text-left px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 border-b border-gray-100"
+                    >
+                      <Calendar size={16} />
+                      스케줄
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setShowUserMenu(false);
                         handleLogout();
                       }}
                       className="w-full text-left px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
@@ -633,6 +648,16 @@ export default function App() {
           <NavItem icon={<TrendingUp />} label="분석" isActive={currentTab === 'stats'} onClick={() => setCurrentTab('stats')} />
           <NavItem icon={<TargetIcon />} label="연습기록" isActive={currentTab === 'practice'} onClick={() => setCurrentTab('practice')} />
         </nav>
+
+        {showScheduleModal && (
+          <ScheduleModal 
+            onClose={() => setShowScheduleModal(false)} 
+            targetEmail={userEmail} 
+            db={db} 
+            appId={appId} 
+            scheduleOwnerRole="student"
+          />
+        )}
       </div>
     </div>
   );
@@ -3106,6 +3131,7 @@ function PaymentModal({ onClose, onSuccess }) {
 function InstructorApp({ onLogout, userEmail, user, db, appId }) {
   const [studentEmail, setStudentEmail] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false); 
+  const [showScheduleModal, setShowScheduleModal] = useState(false); // 교습가 개인 스케줄 모달
   
   const [myStudents, setMyStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -3257,6 +3283,11 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                    context={analysisContext} 
                    onBack={() => setCurrentTab('roundDetail')} 
                  />;
+        case 'schedule':
+          return <div className="p-5 animate-fadeIn h-full pb-24">
+                   <h2 className="text-xl font-bold text-gray-800 mb-4">{selectedStudent.name} 학생의 스케줄</h2>
+                   <ScheduleView targetEmail={selectedStudent.encodedEmail} db={db} appId={appId} scheduleOwnerRole="student" />
+                 </div>;
         default: 
           return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={null} />; // 교습가는 삭제 불가
       }
@@ -3288,6 +3319,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
             <NavItem icon={<Home />} label="홈 (요약)" isActive={currentTab === 'dashboard'} onClick={() => setCurrentTab('dashboard')} />
             <NavItem icon={<TrendingUp />} label="상세 분석" isActive={currentTab === 'stats'} onClick={() => setCurrentTab('stats')} />
             <NavItem icon={<TargetIcon />} label="연습기록" isActive={currentTab === 'practice'} onClick={() => setCurrentTab('practice')} />
+            <NavItem icon={<Calendar />} label="스케줄" isActive={currentTab === 'schedule'} onClick={() => setCurrentTab('schedule')} />
           </nav>
         </div>
       </div>
@@ -3315,6 +3347,16 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)}></div>
                 <div className="absolute right-0 mt-2 w-32 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 animate-fadeIn">
+                  <button 
+                    onClick={() => {
+                      setShowUserMenu(false);
+                      setShowScheduleModal(true);
+                    }}
+                    className="w-full text-left px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2 border-b border-gray-100"
+                  >
+                    <Calendar size={16} />
+                    스케줄
+                  </button>
                   <button 
                     onClick={() => {
                       setShowUserMenu(false);
@@ -3402,6 +3444,213 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
             </div>
           </div>
         </main>
+
+        {showScheduleModal && (
+          <ScheduleModal 
+            onClose={() => setShowScheduleModal(false)} 
+            targetEmail={userEmail} 
+            db={db} 
+            appId={appId} 
+            scheduleOwnerRole="instructor"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+      <div className="w-full max-w-md bg-gray-50 h-full flex flex-col relative animate-slideUp overflow-hidden">
+        <header className="bg-white px-4 py-3 sticky top-0 z-10 flex items-center shadow-sm border-b border-gray-200">
+          <button onClick={onClose} className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors">
+            <X size={24} />
+          </button>
+          <h2 className="text-lg font-bold text-gray-800 ml-2">나의 스케줄</h2>
+        </header>
+        <div className="flex-1 overflow-y-auto p-4 pb-20">
+           <ScheduleView targetEmail={targetEmail} db={db} appId={appId} scheduleOwnerRole={scheduleOwnerRole} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole }) {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [schedules, setSchedules] = useState([]);
+  const [isAdding, setIsAdding] = useState(false);
+  const [newEvent, setNewEvent] = useState({ title: '', type: scheduleOwnerRole === 'student' ? 'practice' : 'field' });
+
+  const studentTypes = [
+    { id: 'practice', label: '연습라운드', color: 'bg-emerald-400' },
+    { id: 'tournament', label: '시합일정', color: 'bg-blue-500' },
+    { id: 'lesson', label: '레슨', color: 'bg-purple-400' },
+    { id: 'other', label: '기타', color: 'bg-gray-400' }
+  ];
+
+  const instructorTypes = [
+    { id: 'field', label: '필드레슨', color: 'bg-emerald-400' },
+    { id: 'studio', label: '스튜디오 레슨', color: 'bg-blue-500' },
+    { id: 'external', label: '외부일정', color: 'bg-orange-400' },
+    { id: 'other', label: '기타', color: 'bg-gray-400' }
+  ];
+
+  const typeOptions = scheduleOwnerRole === 'student' ? studentTypes : instructorTypes;
+
+  const getTypeLabel = (id) => typeOptions.find(t => t.id === id)?.label || '기타';
+  const getTypeColor = (id) => typeOptions.find(t => t.id === id)?.color || 'bg-gray-400';
+
+  useEffect(() => {
+    if (!db || !targetEmail) return;
+    const schedulesRef = collection(db, 'artifacts', appId, 'users', targetEmail, 'schedules');
+    const unsubscribe = onSnapshot(schedulesRef, (snapshot) => {
+      const loaded = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSchedules(loaded);
+    }, (error) => console.warn("Schedule sync error", error));
+
+    return () => unsubscribe();
+  }, [db, targetEmail, appId]);
+
+  const handleSaveEvent = async () => {
+    if (!newEvent.title.trim()) {
+      alert('일정 제목을 입력하세요.');
+      return;
+    }
+    try {
+      const docRef = doc(collection(db, 'artifacts', appId, 'users', targetEmail, 'schedules'));
+      await setDoc(docRef, {
+        id: docRef.id,
+        date: selectedDate,
+        ...newEvent,
+        createdAt: Date.now()
+      });
+      setIsAdding(false);
+      setNewEvent({ title: '', type: scheduleOwnerRole === 'student' ? 'practice' : 'field' });
+    } catch (e) {
+      console.warn("Save schedule error", e);
+      alert('스케줄 저장 중 오류가 발생했습니다.');
+    }
+  };
+
+  const handleDeleteEvent = async (id) => {
+    if (window.confirm('이 일정을 삭제하시겠습니까?')) {
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', targetEmail, 'schedules', id));
+      } catch (e) {
+        console.warn("Delete schedule error", e);
+      }
+    }
+  };
+
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayIndex = new Date(year, month, 1).getDay();
+
+  const days = [];
+  for (let i = 0; i < firstDayIndex; i++) days.push(null);
+  for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+
+  const getEventsForDate = (dateStr) => schedules.filter(s => s.date === dateStr);
+
+  return (
+    <div>
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+        <div className="flex justify-between items-center mb-4 px-2">
+          <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="p-1 hover:bg-gray-100 rounded-full"><ChevronLeft size={20}/></button>
+          <div className="font-black text-gray-800 text-lg">{year}년 {month + 1}월</div>
+          <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="p-1 hover:bg-gray-100 rounded-full"><ChevronRight size={20}/></button>
+        </div>
+        
+        <div className="grid grid-cols-7 gap-1 text-center mb-2">
+          {['일','월','화','수','목','금','토'].map((d, i) => (
+            <div key={d} className={`text-[10px] font-bold ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-400'}`}>{d}</div>
+          ))}
+        </div>
+        
+        <div className="grid grid-cols-7 gap-1">
+          {days.map((d, i) => {
+            if (!d) return <div key={`empty-${i}`} className="p-2 h-14"></div>;
+            
+            const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const isSelected = selectedDate === dateStr;
+            const isToday = new Date().toISOString().split('T')[0] === dateStr;
+            const dayEvents = getEventsForDate(dateStr);
+            const isSunday = d.getDay() === 0;
+            const isSaturday = d.getDay() === 6;
+            
+            return (
+              <button 
+                key={i} 
+                onClick={() => setSelectedDate(dateStr)}
+                className={`p-1.5 flex flex-col items-center justify-start h-14 rounded-lg transition-all border ${isSelected ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-transparent hover:bg-gray-50'}`}
+              >
+                <span className={`text-[11px] font-bold ${isToday ? 'bg-emerald-500 text-white w-5 h-5 rounded-full flex items-center justify-center' : isSunday ? 'text-red-500' : isSaturday ? 'text-blue-500' : 'text-gray-700'}`}>
+                  {d.getDate()}
+                </span>
+                <div className="flex flex-wrap justify-center gap-0.5 mt-1 px-0.5">
+                   {dayEvents.slice(0,3).map(e => (
+                     <div key={e.id} className={`w-1.5 h-1.5 rounded-full ${getTypeColor(e.type)}`}></div>
+                   ))}
+                   {dayEvents.length > 3 && <div className="w-1.5 h-1.5 rounded-full bg-gray-400"></div>}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <div className="flex justify-between items-center mb-3 px-1">
+           <h3 className="font-bold text-gray-800 flex items-center gap-2">
+              <Calendar size={16} className="text-emerald-600"/> 
+              {selectedDate.split('-')[1]}월 {selectedDate.split('-')[2]}일 일정
+           </h3>
+           <button onClick={() => setIsAdding(true)} className="text-[11px] bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 shadow-sm hover:bg-emerald-700 transition-colors"><Plus size={12}/> 추가</button>
+        </div>
+        
+        {isAdding && (
+           <div className="bg-white p-4 rounded-xl shadow-sm border border-emerald-200 mb-4 animate-slideUp">
+              <input type="text" placeholder="일정 제목을 입력하세요." value={newEvent.title} onChange={e => setNewEvent({...newEvent, title: e.target.value})} className="w-full mb-3 p-3 bg-gray-50 rounded-lg text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium" />
+              <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide pb-1">
+                {typeOptions.map(t => (
+                  <button key={t.id} onClick={() => setNewEvent({...newEvent, type: t.id})} className={`whitespace-nowrap px-3 py-1.5 rounded-full text-[10px] font-bold border transition-colors ${newEvent.type === t.id ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2">
+                 <button onClick={() => setIsAdding(false)} className="text-xs px-4 py-2 text-gray-500 font-bold hover:bg-gray-100 rounded-lg transition-colors">취소</button>
+                 <button onClick={handleSaveEvent} className="text-xs bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-emerald-700 transition-colors">저장하기</button>
+              </div>
+           </div>
+        )}
+
+        <div className="space-y-2">
+           {getEventsForDate(selectedDate).map(e => (
+              <div key={e.id} className="flex justify-between items-center bg-white p-3.5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                 <div className="flex items-center gap-3">
+                   <div className={`w-1.5 h-10 rounded-full ${getTypeColor(e.type)}`}></div>
+                   <div>
+                     <div className="text-[10px] font-bold text-gray-400 mb-0.5">{getTypeLabel(e.type)}</div>
+                     <div className="text-sm font-bold text-gray-800">{e.title}</div>
+                   </div>
+                 </div>
+                 <button onClick={() => handleDeleteEvent(e.id)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                   <Trash2 size={16} />
+                 </button>
+              </div>
+           ))}
+           {getEventsForDate(selectedDate).length === 0 && !isAdding && (
+              <div className="text-center text-sm font-medium text-gray-400 py-10 bg-white rounded-xl border border-dashed border-gray-200 flex flex-col items-center gap-2">
+                <Calendar size={24} className="text-gray-300" />
+                등록된 일정이 없습니다.
+              </div>
+           )}
+        </div>
       </div>
     </div>
   );

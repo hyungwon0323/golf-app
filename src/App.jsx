@@ -418,8 +418,7 @@ export default function App() {
       }
     }, (error) => console.warn("Scores sync error", error));
 
-    const practiceRef = collection(db, 'artifacts', appId, 'users', userEmail, 'practice');
-    const practiceRef = collection(db, 'artifacts', appId, 'users', userEmail, 'practice');
+   const practiceRef = collection(db, 'artifacts', appId, 'users', userEmail, 'practice');
     const unsubscribePractice = onSnapshot(practiceRef, (snapshot) => {
       if (snapshot.empty) {
         setPracticeRecords([]);
@@ -427,7 +426,7 @@ export default function App() {
         const fetchedRecords = snapshot.docs.map(d => {
           let data = d.data();
           
-          // ✨ 마법의 치트키 해제: 압축된 글자를 다시 점수판(배열)으로 예쁘게 복구!
+          // ✨ 핵심 수리: 파이어베이스에서 꺼내온 압축 데이터를 여기서 확실히 풀어줍니다!
           if (data.gameType === '100ft_drill' && typeof data.gameData === 'string') {
             try {
               data.gameData = JSON.parse(data.gameData);

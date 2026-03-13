@@ -467,9 +467,11 @@ export default function App() {
       try {
         const cleanRecord = JSON.parse(JSON.stringify(newRecord));
         
-        // ✨ 마법의 치트키: 파이어베이스가 못 알아보게 점수판을 하나의 '글자'로 압축!
+        // ✨ 치트키 최종 업그레이드: 100ft 드릴이면 압축하고, 아니면 에러 원인(빈 점수판)을 아예 삭제!
         if (cleanRecord.gameType === '100ft_drill' && cleanRecord.gameData) {
           cleanRecord.gameData = JSON.stringify(cleanRecord.gameData);
+        } else {
+          delete cleanRecord.gameData; // 일반 연습일 땐 불필요한 배열 삭제
         }
 
         const recordRef = doc(db, 'artifacts', appId, 'users', userEmail, 'practice', cleanRecord.id.toString());

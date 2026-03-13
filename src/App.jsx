@@ -457,8 +457,18 @@ export default function App() {
         const cleanRecord = JSON.parse(JSON.stringify(newRecord));
         const recordRef = doc(db, 'artifacts', appId, 'users', userEmail, 'practice', cleanRecord.id.toString());
         await setDoc(recordRef, cleanRecord);
-      } catch(e) { console.warn("Save practice error", e); }
+        
+        // ✨ 성공 시 팝업창 띄우기
+        alert('✅ 금고에 연습 기록 저장 성공!');
+
+      } catch(e) { 
+        console.warn("Save practice error", e); 
+        // 🚨 에러 발생 시 진짜 이유 띄우기
+        alert('❌ 저장 실패 원인: ' + e.message);
+      }
     } else {
+      // ⚠️ 연결이 끊겼을 때 띄우기
+      alert('⚠️ 연결 문제: 이메일이나 DB를 찾을 수 없습니다.');
       setPracticeRecords(prev => [newRecord, ...prev]);
     }
   };

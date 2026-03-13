@@ -419,11 +419,23 @@ export default function App() {
     }, (error) => console.warn("Scores sync error", error));
 
     const practiceRef = collection(db, 'artifacts', appId, 'users', userEmail, 'practice');
+    const practiceRef = collection(db, 'artifacts', appId, 'users', userEmail, 'practice');
     const unsubscribePractice = onSnapshot(practiceRef, (snapshot) => {
       if (snapshot.empty) {
         setPracticeRecords([]);
       } else {
-        const fetchedRecords = snapshot.docs.map(d => ({ id: Number(d.id), ...d.data() }));
+        const fetchedRecords = snapshot.docs.map(d => {
+          let data = d.data();
+          
+          // ✨ 마법의 치트키 해제: 압축된 글자를 다시 점수판(배열)으로 예쁘게 복구!
+          if (data.gameType === '100ft_drill' && typeof data.gameData === 'string') {
+            try {
+              data.gameData = JSON.parse(data.gameData);
+            } catch(e) { console.warn("Parse error", e); }
+          }
+          
+          return { id: Number(d.id), ...data };
+        });
         fetchedRecords.sort((a,b) => b.id - a.id);
         setPracticeRecords(fetchedRecords);
       }
@@ -455,17 +467,25 @@ export default function App() {
     if (userEmail && db) {
       try {
         const cleanRecord = JSON.parse(JSON.stringify(newRecord));
+        
+        // ✨ 마법의 치트키: 파이어베이스가 못 알아보게 점수판을 하나의 '글자'로 압축!
+        if (cleanRecord.gameType === '100ft_drill' && cleanRecord.gameData) {
+          cleanRecord.gameData = JSON.stringify(cleanRecord.gameData);
+        }
+
         const recordRef = doc(db, 'artifacts', appId, 'users', userEmail, 'practice', cleanRecord.id.toString());
         await setDoc(recordRef, cleanRecord);
         
-        // ✨ 성공 시 팝업창 띄우기
         alert('✅ 금고에 연습 기록 저장 성공!');
-
       } catch(e) { 
         console.warn("Save practice error", e); 
-        // 🚨 에러 발생 시 진짜 이유 띄우기
         alert('❌ 저장 실패 원인: ' + e.message);
       }
+    } else {
+      alert('⚠️ 연결 문제: 이메일이나 DB를 찾을 수 없습니다.');
+      setPracticeRecords(prev => [newRecord, ...prev]);
+    }
+  };
     } else {
       // ⚠️ 연결이 끊겼을 때 띄우기
       alert('⚠️ 연결 문제: 이메일이나 DB를 찾을 수 없습니다.');

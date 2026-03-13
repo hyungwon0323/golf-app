@@ -485,12 +485,7 @@ export default function App() {
       setPracticeRecords(prev => [newRecord, ...prev]);
     }
   };
-    } else {
-      // ⚠️ 연결이 끊겼을 때 띄우기
-      alert('⚠️ 연결 문제: 이메일이나 DB를 찾을 수 없습니다.');
-      setPracticeRecords(prev => [newRecord, ...prev]);
-    }
-  };
+   
 
   const handleDeleteScore = async (scoreId) => {
     if (window.confirm('이 라운드 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {

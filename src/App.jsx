@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, createContext, useContext } from 'react';
 import { 
   Home, 
   PenTool, 
@@ -50,7 +50,6 @@ import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, g
 let app, auth, db, appId;
 
 try {
-  // 환경 변수 기반 설정 적용 (Canvas 환경 호환성), 없으면 하드코딩된 설정 사용
   const config = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
     apiKey: "AIzaSyAKyBw7Ca5Zi9XGEudGkDPh69_W7T1N-lc",
     authDomain: "zeno-golf.firebaseapp.com",
@@ -66,6 +65,48 @@ try {
   appId = typeof __app_id !== 'undefined' ? __app_id : "zeno-golf-app";
 } catch (e) {
   console.log('Firebase init skipped or failed', e);
+}
+
+// --- [Dialog Context (Custom Alerts/Confirms)] ---
+const DialogContext = createContext({
+  showAlert: () => {},
+  showConfirm: () => {}
+});
+
+export const useDialog = () => useContext(DialogContext);
+
+function GlobalDialog({ dialog, onClose }) {
+  if (!dialog.isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fadeIn">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden animate-slideUp">
+        <div className="p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-2">{dialog.title}</h3>
+          <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{dialog.message}</p>
+        </div>
+        <div className="flex border-t border-gray-100 bg-gray-50">
+          {dialog.type === 'confirm' && (
+            <button
+              onClick={onClose}
+              className="flex-1 p-4 text-sm font-bold text-gray-500 hover:bg-gray-100 transition-colors"
+            >
+              취소
+            </button>
+          )}
+          <button
+            onClick={() => {
+              if (dialog.onConfirm) dialog.onConfirm();
+              onClose();
+            }}
+            className={`flex-1 p-4 text-sm font-bold transition-colors ${dialog.type === 'confirm' ? 'text-emerald-600 hover:bg-emerald-100 border-l border-gray-200' : 'text-emerald-600 hover:bg-emerald-100'}`}
+          >
+            확인
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // --- [커스텀 아이콘] ---
@@ -206,7 +247,8 @@ const defaultPracticeDraft = {
   content: '' 
 };
 
-export default function App() {
+function ZenoGolfApp() {
+  const { showAlert, showConfirm } = useDialog();
   const [user, setUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -426,7 +468,6 @@ export default function App() {
         const fetchedRecords = snapshot.docs.map(d => {
           let data = d.data();
           
-          // ✨ 핵심 수리: 파이어베이스에서 꺼내온 압축 데이터를 여기서 확실히 풀어줍니다!
           if (data.gameType === '100ft_drill' && typeof data.gameData === 'string') {
             try {
               data.gameData = JSON.parse(data.gameData);
@@ -467,30 +508,29 @@ export default function App() {
       try {
         const cleanRecord = JSON.parse(JSON.stringify(newRecord));
         
-        // ✨ 치트키 최종 업그레이드: 100ft 드릴이면 압축하고, 아니면 에러 원인(빈 점수판)을 아예 삭제!
         if (cleanRecord.gameType === '100ft_drill' && cleanRecord.gameData) {
           cleanRecord.gameData = JSON.stringify(cleanRecord.gameData);
         } else {
-          delete cleanRecord.gameData; // 일반 연습일 땐 불필요한 배열 삭제
+          delete cleanRecord.gameData;
         }
 
         const recordRef = doc(db, 'artifacts', appId, 'users', userEmail, 'practice', cleanRecord.id.toString());
         await setDoc(recordRef, cleanRecord);
         
-        alert('✅ 금고에 연습 기록 저장 성공!');
+        showAlert('✅ 금고에 연습 기록 저장 성공!');
       } catch(e) { 
         console.warn("Save practice error", e); 
-        alert('❌ 저장 실패 원인: ' + e.message);
+        showAlert('❌ 저장 실패 원인: ' + e.message);
       }
     } else {
-      alert('⚠️ 연결 문제: 이메일이나 DB를 찾을 수 없습니다.');
+      showAlert('⚠️ 연결 문제: 이메일이나 DB를 찾을 수 없습니다.');
       setPracticeRecords(prev => [newRecord, ...prev]);
     }
   };
-   
+    
 
   const handleDeleteScore = async (scoreId) => {
-    if (window.confirm('이 라운드 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
+    showConfirm('이 라운드 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.', async () => {
       if (userEmail && db) {
         try {
           await deleteDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'scores', scoreId.toString()));
@@ -498,11 +538,11 @@ export default function App() {
       } else {
         setScores(prev => prev.filter(s => s.id !== scoreId));
       }
-    }
+    });
   };
 
   const handleDeletePractice = async (recordId) => {
-    if (window.confirm('이 연습 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.')) {
+    showConfirm('이 연습 기록을 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.', async () => {
       if (userEmail && db) {
         try {
           await deleteDoc(doc(db, 'artifacts', appId, 'users', userEmail, 'practice', recordId.toString()));
@@ -510,7 +550,7 @@ export default function App() {
       } else {
         setPracticeRecords(prev => prev.filter(r => r.id !== recordId));
       }
-    }
+    });
   };
 
   if (!isAuthReady || (!isDataLoaded && !isLoggedIn)) {
@@ -940,6 +980,7 @@ function HundredFeetDrillDisplay({ data }) {
 }
 
 function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAddingProp, setIsAddingProp, newRecordProp, setNewRecordProp }) {
+  const { showAlert } = useDialog();
   // 컴포넌트 자체 로컬 상태 (Props가 안 넘어올 때를 대비한 Fallback)
   const [localIsAdding, setLocalIsAdding] = useState(false);
   const [localNewRecord, setLocalNewRecord] = useState(defaultPracticeDraft);
@@ -976,12 +1017,12 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
 
   const handleSave = () => {
     if (!newRecord.title.trim()) {
-      alert('제목을 입력해주세요.');
+      showAlert('제목을 입력해주세요.');
       return;
     }
     // 100ft 드릴인 경우 내용은 필수가 아님
     if (newRecord.gameType === 'none' && !newRecord.content.trim()) {
-      alert('내용을 입력해주세요.');
+      showAlert('내용을 입력해주세요.');
       return;
     }
 
@@ -1160,6 +1201,7 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
 }
 
 function LoginView({ onLoginSuccess, user, auth, db, appId }) {
+  const { showAlert } = useDialog();
   const [role, setRole] = useState('student'); 
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -1170,7 +1212,7 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
 
   const handleSendCode = async () => {
     if (!email || !email.includes('@')) {
-      alert('유효한 이메일 주소를 입력해주세요.');
+      showAlert('유효한 이메일 주소를 입력해주세요.');
       return;
     }
     
@@ -1179,12 +1221,12 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
     try {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      alert(`[발송 시뮬레이션 성공]\n\n입력하신 이메일(${email})로 인증번호가 발송된 것으로 간주합니다.\n\n아래의 테스트 코드를 입력해주세요:\n\n[ ${TEST_OTP} ]`);
+      showAlert(`[발송 시뮬레이션 성공]\n\n입력하신 이메일(${email})로 인증번호가 발송된 것으로 간주합니다.\n\n아래의 테스트 코드를 입력해주세요:\n\n[ ${TEST_OTP} ]`, '발송 확인');
       
       setStep(2); 
     } catch (error) {
       console.error("OTP 이메일 발송 에러:", error);
-      alert('이메일 발송 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.');
+      showAlert('이메일 발송 중 문제가 발생했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setIsLoading(false);
     }
@@ -1192,7 +1234,7 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
 
   const handleVerify = async () => {
     if (otp.length !== 6) {
-      alert('6자리 인증번호를 정확히 입력해주세요.');
+      showAlert('6자리 인증번호를 정확히 입력해주세요.');
       return;
     }
 
@@ -1216,7 +1258,7 @@ function LoginView({ onLoginSuccess, user, auth, db, appId }) {
         }
         onLoginSuccess(role, email, encodedEmail);
       } else {
-        alert('인증번호가 일치하지 않습니다. 다시 확인해주세요.');
+        showAlert('인증번호가 일치하지 않습니다. 다시 확인해주세요.');
       }
     }, 800);
   };
@@ -1471,15 +1513,15 @@ function DashboardView({ scores, isPremium, onScoreClick, onDeleteScore }) {
     const allHoles = groupScores.flatMap(s => s.detailedHoles || []);
     
     const fwTries = allHoles.filter(h => h.par !== 3 && h.drive !== null).length;
-    const fwSus = allHoles.filter(h => h.par !== 3 && h.drive === 'O').length;
+    const fwSus = allHoles.filter(h => h.par !== 3 && h.drive !== null && h.drive === 'O').length;
     const fwRate = fwTries > 0 ? Math.round((fwSus / fwTries) * 100) : '-';
 
     const girTries = allHoles.filter(h => h.girResult !== null).length;
-    const girSus = allHoles.filter(h => h.girResult === 'O').length;
+    const girSus = allHoles.filter(h => h.girResult !== null && h.girResult === 'O').length;
     const girRate = girTries > 0 ? Math.round((girSus / girTries) * 100) : '-';
 
-    const udTries = allHoles.filter(h => h.udResult !== null).length;
-    const udSus = allHoles.filter(h => h.udResult === 'O').length;
+    const udTries = allHoles.filter(h => h.girResult === 'X' && h.udResult !== null).length;
+    const udSus = allHoles.filter(h => h.girResult === 'X' && h.udResult !== null && h.udResult === 'O').length;
     const udRate = udTries > 0 ? Math.round((udSus / udTries) * 100) : '-';
 
     const avgPutts = groupScores.length > 0 
@@ -1550,7 +1592,7 @@ function DashboardView({ scores, isPremium, onScoreClick, onDeleteScore }) {
           ))}
           {scores.length === 0 && (
              <div className="p-8 text-center text-gray-400 text-sm">
-                아직 기록된 스코어가 없습니다.
+               아직 기록된 스코어가 없습니다.
              </div>
           )}
         </div>
@@ -1580,8 +1622,9 @@ function RoundDetailView({ score, onBack, onAnalyze, onEdit, userRole, onSaveIns
   const holes = score.detailedHoles || [];
 
   const calcRate = (conditionFn, successFn) => {
-    const tries = holes.filter(conditionFn).length;
-    const successes = holes.filter(successFn).length;
+    const validHoles = holes.filter(conditionFn);
+    const tries = validHoles.length;
+    const successes = validHoles.filter(successFn).length;
     const rate = tries > 0 ? Math.round((successes / tries) * 100) : 0;
     return { tries, successes, rate };
   };
@@ -1589,8 +1632,8 @@ function RoundDetailView({ score, onBack, onAnalyze, onEdit, userRole, onSaveIns
   const teeShot = calcRate(h => h.par !== 3 && h.drive !== null, h => h.drive === 'O');
   const secondShot = calcRate(h => h.par === 5 && h.secondShotResult !== null, h => h.secondShotResult === 'O');
   const gir = calcRate(h => h.girResult !== null, h => h.girResult === 'O');
-  const ud = calcRate(h => h.udResult !== null, h => h.udResult === 'O');
-  const bunkerSave = calcRate(h => h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O');
+  const ud = calcRate(h => h.girResult === 'X' && h.udResult !== null, h => h.udResult === 'O');
+  const bunkerSave = calcRate(h => h.girResult === 'X' && h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O');
 
   const totalPuttsFromHoles = holes.reduce((sum, h) => sum + (h.putts || 0), 0);
   const actualTotalPutts = totalPuttsFromHoles > 0 ? totalPuttsFromHoles : score.putts;
@@ -1971,6 +2014,7 @@ function AddScoreDetailedView({
   editingScoreId,
   onReset
 }) {
+  const { showAlert } = useDialog();
   const curHole = holes[currentHoleIdx];
 
   const updateCurHole = (key, value) => {
@@ -2024,12 +2068,12 @@ function AddScoreDetailedView({
 
   const handleSave = async () => {
     if (!info.course) {
-      alert('골프장 이름을 입력해주세요.');
+      showAlert('골프장 이름을 입력해주세요.');
       setStep(1);
       return;
     }
     if (info.type === 'tournament' && !info.tournamentName) {
-      alert('시합 이름을 입력해주세요.');
+      showAlert('시합 이름을 입력해주세요.');
       setStep(1);
       return;
     }
@@ -2058,12 +2102,13 @@ function AddScoreDetailedView({
       await onSaveScore(newScore);
     }
     
-    alert(editingScoreId ? '라운드 기록이 성공적으로 수정되었습니다!' : '새로운 스코어가 성공적으로 저장되었습니다!');
+    showAlert(editingScoreId ? '라운드 기록이 성공적으로 수정되었습니다!' : '새로운 스코어가 성공적으로 저장되었습니다!');
     
     onReset(); 
     setCurrentTab('dashboard');
   };
 
+  // 모수를 구하는 조건(conditionFn)을 적용한 validHoles 안에서 다시 성공(successFn)을 구하도록 수정
   const calcStats = (conditionFn, successFn) => {
     const validHoles = holes.filter(conditionFn);
     const tries = validHoles.length;
@@ -2081,12 +2126,13 @@ function AddScoreDetailedView({
     wedge: calcStats(h => ['50°', '52°', '54°', '56°', '58°', '60°'].includes(h.girClub), h => h.girResult === 'O'),
   };
 
+  // 숨겨진 유령 데이터가 카운트 되지 않도록 조건 강화 (girResult === 'X' 추가)
   const statsData = {
     drive: calcStats(h => h.drive !== null && h.par !== 3, h => h.drive === 'O'), 
-    ud50100: calcStats(h => h.udDist === '50-100' && h.udResult !== null, h => h.udResult === 'O'),
-    ud2550: calcStats(h => h.udDist === '25-50' && h.udResult !== null, h => h.udResult === 'O'),
-    ud25: calcStats(h => h.udDist === '-25' && h.udResult !== null, h => h.udResult === 'O'),
-    udBunker25: calcStats(h => h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O')
+    ud50100: calcStats(h => h.girResult === 'X' && h.udDist === '50-100' && h.udResult !== null, h => h.udResult === 'O'),
+    ud2550: calcStats(h => h.girResult === 'X' && h.udDist === '25-50' && h.udResult !== null, h => h.udResult === 'O'),
+    ud25: calcStats(h => h.girResult === 'X' && h.udDist === '-25' && h.udResult !== null, h => h.udResult === 'O'),
+    udBunker25: calcStats(h => h.girResult === 'X' && h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O')
   };
 
   if (step === 1) {
@@ -2881,11 +2927,11 @@ function StatsView({ scores }) {
 
   const calculateMetricVal = (score, metricId) => {
     const holes = score.detailedHoles || [];
-    let val = 0;
 
     const calcRate = (cond, suc) => {
-      const t = holes.filter(cond).length;
-      const s = holes.filter(suc).length;
+      const tHoles = holes.filter(cond);
+      const t = tHoles.length;
+      const s = tHoles.filter(suc).length;
       return t > 0 ? Math.round((s/t)*100) : 0;
     };
 
@@ -2893,8 +2939,8 @@ function StatsView({ scores }) {
       case 'teeShot': return calcRate(h => h.par !== 3 && h.drive !== null, h => h.drive === 'O');
       case 'secondShot': return calcRate(h => h.par === 5 && h.secondShotResult !== null, h => h.secondShotResult === 'O');
       case 'gir': return calcRate(h => h.girResult !== null, h => h.girResult === 'O');
-      case 'ud': return calcRate(h => h.udResult !== null, h => h.udResult === 'O');
-      case 'bunkerSave': return calcRate(h => h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O');
+      case 'ud': return calcRate(h => h.girResult === 'X' && h.udResult !== null, h => h.udResult === 'O');
+      case 'bunkerSave': return calcRate(h => h.girResult === 'X' && h.udDist === 'bunker_25' && h.udResult !== null, h => h.udResult === 'O');
       case 'avgPutts': {
         const actualTotalPutts = holes.reduce((sum, h) => sum + (h.putts || 0), 0) || score.putts;
         return holes.length > 0 ? parseFloat((actualTotalPutts / holes.length).toFixed(1)) : parseFloat((score.putts / 18).toFixed(1));
@@ -2938,14 +2984,14 @@ function StatsView({ scores }) {
   
   let effectiveMin, range;
   if (isAllPercentages) {
-     effectiveMin = 0;
-     range = 100;
+      effectiveMin = 0;
+      range = 100;
   } else {
-     const allVals = chartSeries.flatMap(s => s.data.map(d => d.val));
-     const minVal = allVals.length > 0 ? Math.min(...allVals) : 0;
-     const maxVal = allVals.length > 0 ? Math.max(...allVals) : 100;
-     range = (maxVal - minVal === 0) ? 1 : (maxVal - minVal) * 1.2; 
-     effectiveMin = minVal - (range - (maxVal - minVal)) / 2; 
+      const allVals = chartSeries.flatMap(s => s.data.map(d => d.val));
+      const minVal = allVals.length > 0 ? Math.min(...allVals) : 0;
+      const maxVal = allVals.length > 0 ? Math.max(...allVals) : 100;
+      range = (maxVal - minVal === 0) ? 1 : (maxVal - minVal) * 1.2; 
+      effectiveMin = minVal - (range - (maxVal - minVal)) / 2; 
   }
 
   const paddingX = 10;
@@ -3194,177 +3240,32 @@ function StatsView({ scores }) {
   );
 }
 
-function PremiumView({ isPremium, setShowPaymentModal }) {
-  if (isPremium) {
-    return (
-      <div className="p-8 text-center animate-fadeIn space-y-6 flex flex-col items-center justify-center min-h-[60vh]">
-        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
-          <Coffee size={40} />
-        </div>
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">커피 잘 마셨습니다! ☕</h2>
-          <p className="text-gray-600 text-sm">보내주신 따뜻한 커피 덕분에 <br/>오늘도 으쌰으쌰 개발 중입니다!</p>
-        </div>
-        <div className="w-full bg-white p-5 rounded-xl border border-gray-200 shadow-sm text-left mt-4 space-y-4">
-           <h3 className="font-bold text-sm text-gray-800 border-b pb-2">나의 후원 내역</h3>
-           <div className="flex justify-between text-sm">
-             <span className="text-gray-500">후원 항목</span>
-             <span className="font-semibold text-gray-800">개발자 커피 사주기 (₩4,500)</span>
-           </div>
-           <div className="flex justify-between text-sm">
-             <span className="text-gray-500">마지막 후원일</span>
-             <span className="font-semibold text-gray-800">방금 전</span>
-           </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-5 animate-fadeIn">
-      <div className="text-center mb-8 mt-4">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">개발자에게 커피 한 잔 사주기 🥺</h2>
-        <p className="text-gray-500 text-sm px-2">앱이 마음에 드셨다면, 밤샘 코딩하는 개발자를 위해 따뜻한 커피 한 잔 어떠신가요?</p>
-      </div>
-
-      <div className="space-y-4">
-        <div className="bg-white rounded-2xl p-6 border-2 border-emerald-500 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">DONATION</div>
-          <h3 className="text-xl font-bold text-gray-800 mb-1">커피 한 잔 후원 ☕</h3>
-          <div className="text-3xl font-black text-gray-900 mb-4">₩4,500 <span className="text-sm font-normal text-gray-500">/ 1회</span></div>
-          
-          <ul className="space-y-3 mb-6">
-            <li className="flex items-center gap-2 text-sm text-gray-700">
-              <CheckCircle size={16} className="text-emerald-500" /> 개발자의 혈중 카페인 농도 유지
-            </li>
-            <li className="flex items-center gap-2 text-sm text-gray-700">
-              <CheckCircle size={16} className="text-emerald-500" /> 버그 없는 쾌적한 앱 업데이트
-            </li>
-            <li className="flex items-center gap-2 text-sm text-gray-700">
-              <CheckCircle size={16} className="text-emerald-500" /> 개발자의 사랑과 감사 (무한 제공)
-            </li>
-          </ul>
-
-          <button 
-            onClick={() => setShowPaymentModal(true)}
-            className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl hover:bg-emerald-700 transition-colors shadow-md flex items-center justify-center gap-2"
-          >
-            <CreditCard size={18} /> 결제하고 시작하기
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PaymentModal({ onClose, onSuccess }) {
-  const [step, setStep] = useState(1); 
-
-  const handlePay = () => {
-    setStep(2);
-    setTimeout(() => {
-      setStep(3);
-      setTimeout(() => {
-        onSuccess();
-      }, 1500);
-    }, 2000);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center bg-black/60 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden relative animate-slideUp">
-        {step === 1 && (
-          <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10">
-            <X size={24} />
-          </button>
-        )}
-
-        <div className="p-6">
-          {step === 1 && (
-            <>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">결제 수단 선택</h2>
-              <p className="text-sm text-gray-500 mb-6">개발자 커피 후원 (₩4,500)</p>
-
-              <div className="space-y-3 mb-6">
-                <label className="flex items-center p-4 border border-emerald-500 bg-emerald-50 rounded-xl cursor-pointer">
-                  <input type="radio" name="payment" defaultChecked className="form-radio text-emerald-600 focus:ring-emerald-500 h-5 w-5" />
-                  <span className="ml-3 font-medium text-emerald-900">신용/체크카드 (앱카드)</span>
-                </label>
-                <label className="flex items-center p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50">
-                  <input type="radio" name="payment" className="form-radio text-emerald-600 focus:ring-emerald-500 h-5 w-5" />
-                  <span className="ml-3 font-medium text-gray-700">카카오페이</span>
-                </label>
-                <label className="flex items-center p-4 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50">
-                  <input type="radio" name="payment" className="form-radio text-emerald-600 focus:ring-emerald-500 h-5 w-5" />
-                  <span className="ml-3 font-medium text-gray-700">네이버페이</span>
-                </label>
-              </div>
-
-              <div className="text-xs text-gray-400 mb-6 bg-gray-50 p-3 rounded-lg">
-                * 본 결제창은 테스트용 모의 환경입니다. 실제 금액이 청구되지 않습니다.
-              </div>
-
-              <button 
-                onClick={handlePay}
-                className="w-full bg-gray-900 text-white font-bold text-lg py-4 rounded-xl shadow-lg hover:bg-black transition-colors"
-              >
-                4,500원 결제하기
-              </button>
-            </>
-          )}
-
-          {step === 2 && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-4">
-              <div className="w-12 h-12 border-4 border-gray-200 border-t-emerald-600 rounded-full animate-spin"></div>
-              <h3 className="font-bold text-gray-800">안전하게 결제를 진행하고 있습니다...</h3>
-              <p className="text-sm text-gray-500">창을 닫지 마세요.</p>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="py-12 flex flex-col items-center justify-center space-y-4 animate-fadeIn">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-500 mb-2">
-                <CheckCircle size={40} />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900">결제 완료!</h3>
-              <p className="text-gray-500 text-center text-sm">개발자에게 커피가 전달되었습니다.<br/>잠시 후 화면으로 이동합니다.</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function InstructorApp({ onLogout, userEmail, user, db, appId }) {
+  const { showAlert, showConfirm } = useDialog();
   const [studentEmail, setStudentEmail] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false); 
-  const [showScheduleModal, setShowScheduleModal] = useState(false); // 교습가 개인 스케줄 모달
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   
   const [myStudents, setMyStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [currentTab, setCurrentTab] = useState('dashboard');
   
-  // 리얼타임 데이터 저장을 위한 State
   const [studentScores, setStudentScores] = useState([]);
   const [studentPractice, setStudentPractice] = useState([]);
   const [selectedScore, setSelectedScore] = useState(null); 
   const [analysisContext, setAnalysisContext] = useState(null);
 
-  // 1. 등록된 내 학생 리스트 실시간 로드
   useEffect(() => {
     if (!userEmail || !db) return;
     const myStudentsRef = collection(db, 'artifacts', appId, 'users', userEmail, 'myStudents');
     const unsubscribe = onSnapshot(myStudentsRef, (snapshot) => {
       const loaded = snapshot.docs.map(doc => doc.data());
-      // 최신 등록 순
       setMyStudents(loaded.sort((a,b) => b.createdAt - a.createdAt));
     }, (error) => console.warn("Instructor students load error", error));
 
     return () => unsubscribe();
   }, [userEmail, db, appId]);
 
-  // 2. 선택된 학생의 스코어 & 연습기록 실시간 로드
   useEffect(() => {
     if (!selectedStudent || !db) return;
     
@@ -3388,10 +3289,9 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
   }, [selectedStudent, db, appId]);
 
 
-  // Firebase Directory에서 학생 검색 및 등록
   const handleAddStudent = async () => {
     if (!studentEmail || !studentEmail.includes('@')) {
-      alert('정확한 학생의 이메일을 입력해주세요.');
+      showAlert('정확한 학생의 이메일을 입력해주세요.');
       return;
     }
 
@@ -3404,14 +3304,14 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
       if (foundStudent) {
         const myStudentRef = doc(db, 'artifacts', appId, 'users', userEmail, 'myStudents', foundStudent.encodedEmail);
         await setDoc(myStudentRef, { ...foundStudent, createdAt: Date.now() });
-        alert(`${foundStudent.name} 학생이 성공적으로 연동되었습니다!`);
+        showAlert(`${foundStudent.name} 학생이 성공적으로 연동되었습니다!`);
         setStudentEmail('');
       } else {
-        alert('해당 이메일로 가입된 학생 계정을 찾을 수 없습니다.');
+        showAlert('해당 이메일로 가입된 학생 계정을 찾을 수 없습니다.');
       }
     } catch (e) {
       console.error("Student search error", e);
-      alert('학생 검색 중 오류가 발생했습니다.');
+      showAlert('학생 검색 중 오류가 발생했습니다.');
     }
   };
 
@@ -3428,7 +3328,7 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
       await setDoc(scoreRef, { instructorComment: comment }, { merge: true });
     } catch (e) {
       console.warn("Instructor comment save error", e);
-      alert('코멘트 저장 중 오류가 발생했습니다.');
+      showAlert('코멘트 저장 중 오류가 발생했습니다.');
     }
   };
 
@@ -3439,12 +3339,11 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
       await setDoc(pracRef, { instructorComment: comment }, { merge: true });
     } catch (e) {
       console.warn("Instructor practice comment save error", e);
-      alert('연습기록 코멘트 저장 중 오류가 발생했습니다.');
+      showAlert('연습기록 코멘트 저장 중 오류가 발생했습니다.');
     }
   };
 
   if (selectedStudent) {
-    // 실시간으로 업데이트되는 선택된 스코어 포인터 유지
     const activeScore = studentScores.find(s => s.id === selectedScore?.id) || selectedScore;
 
     const renderStudentTabContent = () => {
@@ -3499,11 +3398,10 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
                        <Eye size={12} /> 읽기 전용
                      </span>
                    </div>
-                   {/* 교습가는 학생의 스케줄을 readOnly=true 상태로 봅니다 */}
                    <ScheduleView targetEmail={selectedStudent.encodedEmail} db={db} appId={appId} scheduleOwnerRole="student" readOnly={true} />
                  </div>;
         default: 
-          return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={null} />; // 교습가는 삭제 불가
+          return <DashboardView scores={studentScores} onScoreClick={() => {}} onDeleteScore={null} />;
       }
     };
 
@@ -3674,12 +3572,13 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
 }
 
 function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole, linkedInstructor, onLinkInstructor }) {
-  const [viewMode, setViewMode] = useState('mine'); // 'mine' or 'instructor'
+  const { showAlert, showConfirm } = useDialog();
+  const [viewMode, setViewMode] = useState('mine'); 
   const [inputEmail, setInputEmail] = useState('');
 
   const handleLink = async () => {
     if (!inputEmail || !inputEmail.includes('@')) {
-      alert('정확한 교습가의 이메일을 입력해주세요.');
+      showAlert('정확한 교습가의 이메일을 입력해주세요.');
       return;
     }
     try {
@@ -3690,14 +3589,14 @@ function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole, lin
       
       if (found) {
          onLinkInstructor(found);
-         alert(`${found.name} 교습가가 성공적으로 연동되었습니다!`);
+         showAlert(`${found.name} 교습가가 성공적으로 연동되었습니다!`);
          setInputEmail('');
       } else {
-         alert('해당 이메일로 가입된 교습가 계정을 찾을 수 없습니다.');
+         showAlert('해당 이메일로 가입된 교습가 계정을 찾을 수 없습니다.');
       }
     } catch (e) {
       console.warn("Link instructor error", e);
-      alert('교습가 검색 중 오류가 발생했습니다.');
+      showAlert('교습가 검색 중 오류가 발생했습니다.');
     }
   };
 
@@ -3757,9 +3656,8 @@ function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole, lin
                           <span className="text-sm font-black text-emerald-900">{linkedInstructor.name} 교습가</span>
                           <span className="text-[10px] font-bold text-emerald-700 bg-emerald-200/50 px-2 py-0.5 rounded-full ml-2">연동됨</span>
                        </div>
-                       <button onClick={() => { if(window.confirm('교습가 연동을 해제하시겠습니까?')) onLinkInstructor(null); }} className="text-xs font-bold text-emerald-600 hover:text-emerald-800 underline">해제</button>
+                       <button onClick={() => showConfirm('교습가 연동을 해제하시겠습니까?', () => onLinkInstructor(null))} className="text-xs font-bold text-emerald-600 hover:text-emerald-800 underline">해제</button>
                     </div>
-                    {/* 학생이 교습가 스케줄을 볼 때는 readOnly=true 상태로 봅니다 */}
                     <ScheduleView targetEmail={linkedInstructor.encodedEmail} db={db} appId={appId} scheduleOwnerRole="instructor" readOnly={true} />
                  </div>
               )
@@ -3771,6 +3669,7 @@ function ScheduleModal({ onClose, targetEmail, db, appId, scheduleOwnerRole, lin
 }
 
 function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole, readOnly }) {
+  const { showAlert, showConfirm } = useDialog();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [schedules, setSchedules] = useState([]);
@@ -3810,7 +3709,7 @@ function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole, readOnly }) {
   const handleSaveEvent = async () => {
     if (readOnly) return;
     if (!newEvent.title.trim()) {
-      alert('일정 제목을 입력하세요.');
+      showAlert('일정 제목을 입력하세요.');
       return;
     }
     try {
@@ -3825,19 +3724,19 @@ function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole, readOnly }) {
       setNewEvent({ title: '', type: scheduleOwnerRole === 'student' ? 'practice' : 'field' });
     } catch (e) {
       console.warn("Save schedule error", e);
-      alert('스케줄 저장 중 오류가 발생했습니다.');
+      showAlert('스케줄 저장 중 오류가 발생했습니다.');
     }
   };
 
   const handleDeleteEvent = async (id) => {
     if (readOnly) return;
-    if (window.confirm('이 일정을 삭제하시겠습니까?')) {
+    showConfirm('이 일정을 삭제하시겠습니까?', async () => {
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'users', targetEmail, 'schedules', id));
       } catch (e) {
         console.warn("Delete schedule error", e);
       }
-    }
+    });
   };
 
   const year = currentMonth.getFullYear();
@@ -3954,5 +3853,29 @@ function ScheduleView({ targetEmail, db, appId, scheduleOwnerRole, readOnly }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// === Main Entry Component ===
+export default function App() {
+  const [dialog, setDialog] = useState({ isOpen: false, type: 'alert', title: '', message: '', onConfirm: null });
+
+  const showAlert = (message, title = '알림') => {
+    setDialog({ isOpen: true, type: 'alert', title, message, onConfirm: null });
+  };
+
+  const showConfirm = (message, onConfirm, title = '확인') => {
+    setDialog({ isOpen: true, type: 'confirm', title, message, onConfirm });
+  };
+
+  const closeDialog = () => {
+    setDialog(prev => ({ ...prev, isOpen: false }));
+  };
+
+  return (
+    <DialogContext.Provider value={{ showAlert, showConfirm }}>
+      <ZenoGolfApp />
+      <GlobalDialog dialog={dialog} onClose={closeDialog} />
+    </DialogContext.Provider>
   );
 }

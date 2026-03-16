@@ -46,6 +46,13 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, getDocs } from 'firebase/firestore'; 
 
+// --- [Storage Mock to replace localStorage constraints] ---
+const memStorage = {
+  getItem: (key) => window[`__zg_${key}`] || null,
+  setItem: (key, value) => { window[`__zg_${key}`] = value; },
+  removeItem: (key) => { delete window[`__zg_${key}`]; }
+};
+
 // --- [Firebase Initialization] ---
 let app, auth, db, appId;
 
@@ -288,8 +295,8 @@ function ZenoGolfApp() {
   };
 
   useEffect(() => {
-    const savedEmail = localStorage.getItem('zeno_golf_email');
-    const savedRole = localStorage.getItem('zeno_golf_role');
+    const savedEmail = memStorage.getItem('zeno_golf_email');
+    const savedRole = memStorage.getItem('zeno_golf_role');
     if (savedEmail && savedRole) {
       setUserEmail(savedEmail);
       setUserRole(savedRole);
@@ -303,8 +310,8 @@ function ZenoGolfApp() {
     setCurrentTab('dashboard');
     const prevEmail = userEmail;
     setUserEmail('');
-    localStorage.removeItem('zeno_golf_email');
-    localStorage.removeItem('zeno_golf_role');
+    memStorage.removeItem('zeno_golf_email');
+    memStorage.removeItem('zeno_golf_role');
 
     if (prevEmail && db) {
       try {
@@ -321,8 +328,8 @@ function ZenoGolfApp() {
     setUserRole(role);
     setUserEmail(encodedEmail);
     
-    localStorage.setItem('zeno_golf_email', encodedEmail);
-    localStorage.setItem('zeno_golf_role', role);
+    memStorage.setItem('zeno_golf_email', encodedEmail);
+    memStorage.setItem('zeno_golf_role', role);
 
     if (db) {
       try {
@@ -728,7 +735,17 @@ function ZenoGolfApp() {
 
         <nav className="bg-white border-t border-gray-200 fixed bottom-0 w-full max-w-md flex justify-around p-3 pb-safe z-10">
           <NavItem icon={<Home />} label="홈" isActive={currentTab === 'dashboard'} onClick={() => setCurrentTab('dashboard')} />
-          <NavItem icon={<PenTool />} label="라운드기록" isActive={currentTab === 'add'} onClick={() => setCurrentTab('add')} />
+          <NavItem 
+            icon={<PenTool />} 
+            label="라운드기록" 
+            isActive={currentTab === 'add'} 
+            onClick={() => {
+              if (editingScoreId) {
+                resetAddScoreState();
+              }
+              setCurrentTab('add');
+            }} 
+          />
           <NavItem icon={<TrendingUp />} label="분석" isActive={currentTab === 'stats'} onClick={() => setCurrentTab('stats')} />
           <NavItem icon={<TargetIcon />} label="연습기록" isActive={currentTab === 'practice'} onClick={() => setCurrentTab('practice')} />
         </nav>
@@ -909,7 +926,7 @@ function HundredFeetDrillInput({ data, onChange }) {
       <div className="flex justify-between items-center mb-4">
         <h4 className="text-base font-black text-emerald-900 flex items-center gap-1.5"><Flag size={18}/> 100ft 드릴 스코어카드</h4>
         <div className="text-xl font-black text-emerald-700 bg-white px-4 py-2 rounded-xl shadow-md border-2 border-emerald-400">
-           총 {totalScore} <span className="text-[11px] font-bold text-gray-500">/ 250점</span>
+            총 {totalScore} <span className="text-[11px] font-bold text-gray-500">/ 250점</span>
         </div>
       </div>
       
@@ -991,10 +1008,10 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
   const newRecord = newRecordProp || localNewRecord;
   const setNewRecord = setNewRecordProp || setLocalNewRecord;
 
-  // localStorage에서 100ft 드릴 데이터 불러오기 (초기 1회 및 게임 모드 전환 시)
+  // memStorage에서 100ft 드릴 데이터 불러오기 (초기 1회 및 게임 모드 전환 시)
   useEffect(() => {
     if (isAdding && newRecord.gameType === '100ft_drill') {
-      const draft = localStorage.getItem('putting_game_100ft_draft');
+      const draft = memStorage.getItem('putting_game_100ft_draft');
       if (draft) {
         try {
           const parsed = JSON.parse(draft);
@@ -1008,10 +1025,10 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
     }
   }, [isAdding, newRecord.gameType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 100ft 드릴 데이터 변경 시 localStorage 자동 저장
+  // 100ft 드릴 데이터 변경 시 memStorage 자동 저장
   useEffect(() => {
     if (isAdding && newRecord.gameType === '100ft_drill' && newRecord.gameData) {
-      localStorage.setItem('putting_game_100ft_draft', JSON.stringify(newRecord.gameData));
+      memStorage.setItem('putting_game_100ft_draft', JSON.stringify(newRecord.gameData));
     }
   }, [isAdding, newRecord.gameType, newRecord.gameData]);
 
@@ -1035,8 +1052,8 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
     onSave(recordToSave);
     setIsAdding(false);
     setNewRecord(defaultPracticeDraft);
-    // 최종 저장 완료 시 localStorage 임시저장 삭제
-    localStorage.removeItem('putting_game_100ft_draft');
+    // 최종 저장 완료 시 memStorage 임시저장 삭제
+    memStorage.removeItem('putting_game_100ft_draft');
   };
 
   if (isAdding) {
@@ -1103,7 +1120,7 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
                    <button onClick={() => setNewRecord({...newRecord, gameType: 'none'})} className={`flex-1 py-2 text-[11px] font-bold rounded-lg border transition-all ${newRecord.gameType === 'none' ? 'bg-emerald-100 border-emerald-500 text-emerald-800 shadow-sm' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>자유 작성</button>
                    <button 
                      onClick={() => {
-                        const draft = localStorage.getItem('putting_game_100ft_draft');
+                        const draft = memStorage.getItem('putting_game_100ft_draft');
                         let loadedData = newRecord.gameData || Array.from({length: 5}, () => [null, null, null, null]);
                         if (draft) {
                             try { loadedData = JSON.parse(draft); } catch(e) {}
@@ -2459,7 +2476,7 @@ function AddScoreDetailedView({
                 <>
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                     <label className="block text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                       티샷 클럽 (Tee Shot Club)
+                        티샷 클럽 (Tee Shot Club)
                     </label>
                     <div className="grid grid-cols-3 gap-2">
                       {teeClubs.map(club => (

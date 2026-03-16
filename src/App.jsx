@@ -3276,9 +3276,21 @@ function InstructorApp({ onLogout, userEmail, user, db, appId }) {
       setStudentScores(loaded);
     }, err => console.warn("Student scores load error", err));
 
-    const pracRef = collection(db, 'artifacts', appId, 'users', targetEmail, 'practice');
+   const pracRef = collection(db, 'artifacts', appId, 'users', targetEmail, 'practice');
     const unsubPrac = onSnapshot(pracRef, snap => {
-      const loaded = snap.docs.map(d => ({id: Number(d.id), ...d.data()})).sort((a,b)=>b.id-a.id);
+      const loaded = snap.docs.map(d => {
+        let data = d.data();
+        
+        // ✨ 교습가 모드에도 압축 풀기 마법 추가!
+        if (data.gameType === '100ft_drill' && typeof data.gameData === 'string') {
+          try {
+            data.gameData = JSON.parse(data.gameData);
+          } catch(e) { console.warn("Parse error", e); }
+        }
+        
+        return { id: Number(d.id), ...data };
+      }).sort((a,b)=>b.id-a.id);
+      
       setStudentPractice(loaded);
     }, err => console.warn("Student practice load error", err));
 

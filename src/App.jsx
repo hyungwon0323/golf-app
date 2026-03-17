@@ -267,7 +267,6 @@ function ZenoGolfApp() {
   const [scores, setScores] = useState([]);
   const [practiceRecords, setPracticeRecords] = useState(initialPracticeRecords); 
   const [isPremium, setIsPremium] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedScore, setSelectedScore] = useState(null); 
   const [analysisContext, setAnalysisContext] = useState(null); 
   const [showUserMenu, setShowUserMenu] = useState(false); 
@@ -766,7 +765,7 @@ function ZenoGolfApp() {
   );
 }
 
-function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
+function PracticeRecordItem({ record, userRole, onSaveComment, onDelete, onEdit }) {
   const [isEditingComment, setIsEditingComment] = useState(false);
   const [commentText, setCommentText] = useState(record.instructorComment || '');
 
@@ -852,7 +851,17 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete }) {
           {getRecordTypeBadge(record.type)}
           {getRecordMethodBadge(record.method)}
           {record.gameType === '100ft_drill' && <span className="bg-emerald-500 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">100ft 드릴</span>}
-          <span className="text-[10px] text-gray-400 font-medium ml-auto">{record.date}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[10px] text-gray-400 font-medium">{record.date}</span>
+            {userRole !== 'instructor' && onEdit && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(record); }}
+                className="text-[10px] font-bold text-gray-400 hover:text-emerald-600 transition-colors flex items-center gap-0.5 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100"
+              >
+                <PenTool size={10} /> 수정
+              </button>
+            )}
+          </div>
         </div>
         <h3 className="font-bold text-gray-800 mb-3">{record.title}</h3>
 
@@ -1044,9 +1053,9 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
     }
 
     const recordToSave = {
-      id: Date.now(),
-      date: new Date().toISOString().split('T')[0],
-      ...newRecord
+      ...newRecord,
+      id: newRecord.id || Date.now(),
+      date: newRecord.date || new Date().toISOString().split('T')[0]
     };
 
     onSave(recordToSave);
@@ -1060,7 +1069,7 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
     return (
       <div className="p-5 animate-fadeIn">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-800">새 연습 기록</h2>
+          <h2 className="text-xl font-bold text-gray-800">{newRecord.id ? '연습 기록 수정' : '새 연습 기록'}</h2>
           <button onClick={() => setIsAdding(false)} className="p-2 -mr-2 text-gray-400 hover:text-gray-600">
             <X size={20} />
           </button>
@@ -1172,7 +1181,7 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
             onClick={handleSave}
             className="w-full bg-emerald-600 text-white font-bold text-lg py-3.5 rounded-xl shadow-md hover:bg-emerald-700 transition-colors mt-2 flex justify-center items-center gap-2"
           >
-            <Save size={18} /> 기록 저장하기
+            <Save size={18} /> {newRecord.id ? '기록 수정하기' : '기록 저장하기'}
           </button>
         </div>
       </div>
@@ -1188,7 +1197,10 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
         </div>
         {userRole !== 'instructor' && (
           <button 
-            onClick={() => setIsAdding(true)}
+            onClick={() => {
+              setNewRecord(defaultPracticeDraft);
+              setIsAdding(true);
+            }}
             className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors flex items-center gap-1.5"
           >
             <PenTool size={12} /> 새 기록
@@ -1209,6 +1221,10 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
               userRole={userRole} 
               onSaveComment={onSaveComment} 
               onDelete={onDelete}
+              onEdit={(recordToEdit) => {
+                setNewRecord(recordToEdit);
+                setIsAdding(true);
+              }}
             />
           ))
         )}
@@ -1571,7 +1587,7 @@ function DashboardView({ scores, isPremium, onScoreClick, onDeleteScore }) {
   return (
     <div className="p-5 space-y-6 animate-fadeIn">
       <div>
-        <h3 className="text-sm font-bold text-gray-500 mb-3 px-1">최근 라운드 요약</h3>
+        <h3 className="text-sm font-bold text-gray-500 mb-3 px-1">최근 라운 요약</h3>
         
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center">
@@ -2382,7 +2398,7 @@ function AddScoreDetailedView({
                     <button
                       key={p}
                       onClick={() => updateNestedCurHole('par', p, 'score', p)}
-                      className={`w-8 h-8 rounded-md text-sm font-bold transition-all ${curHole.par === p ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-50'}`}
+                      className={`w-8 h-8 rounded-md text-sm font-bold transition-all ${curHole.par === p ? 'bg-emerald-600 text-white' : 'textemerald-700 hover:bg-emerald-50'}`}
                     >
                       {p}
                     </button>

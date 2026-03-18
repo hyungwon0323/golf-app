@@ -46,11 +46,11 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, getDocs } from 'firebase/firestore'; 
 
-// --- [Storage Mock to replace localStorage constraints] ---
+// ✨ 마법의 스마트 금고: 폰에서는 영구 저장(localStorage), 캔버스에서는 임시 저장
 const memStorage = {
-  getItem: (key) => window[`__zg_${key}`] || null,
-  setItem: (key, value) => { window[`__zg_${key}`] = value; },
-  removeItem: (key) => { delete window[`__zg_${key}`]; }
+  getItem: (key) => { try { return localStorage.getItem(key); } catch(e) { return window[`__zg_${key}`] || null; } },
+  setItem: (key, value) => { try { localStorage.setItem(key, value); } catch(e) { window[`__zg_${key}`] = value; } },
+  removeItem: (key) => { try { localStorage.removeItem(key); } catch(e) { delete window[`__zg_${key}`]; } }
 };
 
 // --- [Firebase Initialization] ---

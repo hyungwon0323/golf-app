@@ -46,11 +46,11 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, getDocs } from 'firebase/firestore'; 
 
-// ✨ 마법의 스마트 금고: 폰에서는 영구 저장(localStorage), 캔버스에서는 임시 저장
+// --- [Storage Mock to replace localStorage constraints] ---
 const memStorage = {
-  getItem: (key) => { try { return localStorage.getItem(key); } catch(e) { return window[`__zg_${key}`] || null; } },
-  setItem: (key, value) => { try { localStorage.setItem(key, value); } catch(e) { window[`__zg_${key}`] = value; } },
-  removeItem: (key) => { try { localStorage.removeItem(key); } catch(e) { delete window[`__zg_${key}`]; } }
+  getItem: (key) => window[`__zg_${key}`] || null,
+  setItem: (key, value) => { window[`__zg_${key}`] = value; },
+  removeItem: (key) => { delete window[`__zg_${key}`]; }
 };
 
 // --- [Firebase Initialization] ---
@@ -240,19 +240,22 @@ const generateInitialInfo = () => ({
   roundReflection: ''
 });
 
-const initialPracticeRecords = [
-  { id: 1, date: '2026-03-08', type: 'long', method: 'block', gameType: 'none', title: '드라이버 방향성 교정', content: '백스윙 탑에서 크로스오버 되는 느낌을 잡기 위해 노력함. 임팩트 시 클럽 페이스가 열리는 문제를 신경 썼다.', instructorComment: '백스윙 궤도를 영상으로 찍어서 확인해 보는 것이 좋겠습니다. 잘하고 있어요!' },
-  { id: 2, date: '2026-03-09', type: 'short', method: 'random', gameType: 'none', title: '50m, 30m 어프로치', content: '거리감 맞추기 위주로 연습. 50m는 샌드웨지 3/4 스윙, 30m는 하프 스윙으로 기준을 잡았다. 스핀량은 아직 부족함.' },
-];
-
 const defaultPracticeDraft = { 
   type: 'long', 
   method: 'block', 
   gameType: 'none', 
   gameData: Array.from({length: 5}, () => [null, null, null, null]), 
   title: '', 
-  content: '' 
+  content: '',
+  blockFocus: '',
+  blockDrill: '',
+  blockDuration: ''
 };
+
+const initialPracticeRecords = [
+  { id: 1, date: '2026-03-08', type: 'long', method: 'block', gameType: 'none', title: '드라이버 방향성 교정', blockFocus: '백스윙 탑에서 크로스오버 및 열림', blockDrill: 'L to L, 하프스윙 연습', blockDuration: '30분', instructorComment: '백스윙 궤도를 영상으로 찍어서 확인해 보는 것이 좋겠습니다. 잘하고 있어요!' },
+  { id: 2, date: '2026-03-09', type: 'short', method: 'random', gameType: 'none', title: '50m, 30m 어프로치', content: '거리감 맞추기 위주로 연습. 50m는 샌드웨지 3/4 스윙, 30m는 하프 스윙으로 기준을 잡았다. 스핀량은 아직 부족함.' },
+];
 
 function ZenoGolfApp() {
   const { showAlert, showConfirm } = useDialog();
@@ -267,6 +270,7 @@ function ZenoGolfApp() {
   const [scores, setScores] = useState([]);
   const [practiceRecords, setPracticeRecords] = useState(initialPracticeRecords); 
   const [isPremium, setIsPremium] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedScore, setSelectedScore] = useState(null); 
   const [analysisContext, setAnalysisContext] = useState(null); 
   const [showUserMenu, setShowUserMenu] = useState(false); 
@@ -865,14 +869,24 @@ function PracticeRecordItem({ record, userRole, onSaveComment, onDelete, onEdit 
         </div>
         <h3 className="font-bold text-gray-800 mb-3">{record.title}</h3>
 
-        {record.gameType === '100ft_drill' && record.gameData && (
-           <HundredFeetDrillDisplay data={record.gameData} />
-        )}
+        {record.method === 'block' && record.blockFocus !== undefined ? (
+          <div className="flex flex-col gap-1.5 bg-gray-50 p-3.5 rounded-xl border border-gray-100 mb-3 text-sm">
+            <div className="flex"><span className="font-black text-gray-700 min-w-[90px]">깊게 파낼 포인트</span> <span className="text-gray-600 break-words flex-1">: {record.blockFocus}</span></div>
+            {record.blockDrill && <div className="flex"><span className="font-black text-gray-700 min-w-[90px]">사용 드릴</span> <span className="text-gray-600 break-words flex-1">: {record.blockDrill}</span></div>}
+            {record.blockDuration && <div className="flex"><span className="font-black text-gray-700 min-w-[90px]">시간 or 횟수</span> <span className="text-gray-600 break-words flex-1">: {record.blockDuration}</span></div>}
+          </div>
+        ) : (
+          <>
+            {record.gameType === '100ft_drill' && record.gameData && (
+               <HundredFeetDrillDisplay data={record.gameData} />
+            )}
 
-        {(record.content || record.gameType !== '100ft_drill') && (
-          <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-3 rounded-xl border border-gray-50 mb-3">
-            {record.content || '작성된 내용이 없습니다.'}
-          </p>
+            {(record.content || record.gameType !== '100ft_drill') && (
+              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 p-3 rounded-xl border border-gray-50 mb-3">
+                {record.content || '작성된 내용이 없습니다.'}
+              </p>
+            )}
+          </>
         )}
 
         {(record.instructorComment || userRole === 'instructor') && (
@@ -1042,14 +1056,22 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
   }, [isAdding, newRecord.gameType, newRecord.gameData]);
 
   const handleSave = () => {
-    if (!newRecord.title.trim()) {
-      showAlert('제목을 입력해주세요.');
-      return;
-    }
-    // 100ft 드릴인 경우 내용은 필수가 아님
-    if (newRecord.gameType === 'none' && !newRecord.content.trim()) {
-      showAlert('내용을 입력해주세요.');
-      return;
+    if (newRecord.method === 'block') {
+      if (!newRecord.blockFocus?.trim()) {
+        showAlert('깊게 파낼 포인트를 입력해주세요.');
+        return;
+      }
+      newRecord.title = newRecord.blockFocus; // 리스트에 보여줄 제목을 Focus 포인트로 자동 설정
+    } else {
+      if (!newRecord.title?.trim()) {
+        showAlert('제목을 입력해주세요.');
+        return;
+      }
+      // 100ft 드릴인 경우 내용은 필수가 아님
+      if (newRecord.gameType === 'none' && !newRecord.content?.trim()) {
+        showAlert('내용을 입력해주세요.');
+        return;
+      }
     }
 
     const recordToSave = {
@@ -1149,33 +1171,70 @@ function PracticeView({ records, onSave, userRole, onSaveComment, onDelete, isAd
             </p>
           </div>
           
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-2">연습 주제 / 제목</label>
-            <input 
-              type="text" 
-              placeholder="예) 드라이버 방향성 교정" 
-              value={newRecord.title}
-              onChange={(e) => setNewRecord({...newRecord, title: e.target.value})}
-              className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm"
-            />
-          </div>
+          {newRecord.method === 'block' ? (
+            <div className="space-y-5 animate-fadeIn">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">깊게 파낼 포인트</label>
+                <input 
+                  type="text" 
+                  placeholder="ex) 페이스 앵글, 패스, 타점 등" 
+                  value={newRecord.blockFocus || ''}
+                  onChange={(e) => setNewRecord({...newRecord, blockFocus: e.target.value})}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm placeholder-gray-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">사용 드릴</label>
+                <input 
+                  type="text" 
+                  placeholder="ex) 옐로우 페이스, 채널, B찌르기 등" 
+                  value={newRecord.blockDrill || ''}
+                  onChange={(e) => setNewRecord({...newRecord, blockDrill: e.target.value})}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm placeholder-gray-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">연습 시간 or 반복 횟수</label>
+                <input 
+                  type="text" 
+                  placeholder="ex) 30분 블록 연습, 클럽별로 10개씩 9i, 7i, 5i, Dr 등" 
+                  value={newRecord.blockDuration || ''}
+                  onChange={(e) => setNewRecord({...newRecord, blockDuration: e.target.value})}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm placeholder-gray-400"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-5 animate-fadeIn">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">연습 주제 / 제목</label>
+                <input 
+                  type="text" 
+                  placeholder="예) 드라이버 방향성 교정" 
+                  value={newRecord.title || ''}
+                  onChange={(e) => setNewRecord({...newRecord, title: e.target.value})}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm placeholder-gray-400"
+                />
+              </div>
 
-          {newRecord.gameType === '100ft_drill' && (
-             <HundredFeetDrillInput 
-               data={newRecord.gameData || Array.from({length: 5}, () => [null, null, null, null])} 
-               onChange={(newData) => setNewRecord({...newRecord, gameData: newData})} 
-             />
+              {newRecord.gameType === '100ft_drill' && (
+                 <HundredFeetDrillInput 
+                   data={newRecord.gameData || Array.from({length: 5}, () => [null, null, null, null])} 
+                   onChange={(newData) => setNewRecord({...newRecord, gameData: newData})} 
+                 />
+              )}
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">{newRecord.gameType === '100ft_drill' ? '게임 소감 / 깨달은 점' : '연습 내용 / 깨달은 점'}</label>
+                <textarea 
+                  placeholder={newRecord.gameType === '100ft_drill' ? "오늘 드릴에서 잘 된 부분이나 아쉬운 점을 기록하세요. (선택 사항)" : "오늘 연습에서 집중한 부분이나 깨달은 느낌을 자유롭게 적어주세요."}
+                  value={newRecord.content || ''}
+                  onChange={(e) => setNewRecord({...newRecord, content: e.target.value})}
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm min-h-[150px] resize-none placeholder-gray-400"
+                />
+              </div>
+            </div>
           )}
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-2">{newRecord.gameType === '100ft_drill' ? '게임 소감 / 깨달은 점' : '연습 내용 / 깨달은 점'}</label>
-            <textarea 
-              placeholder={newRecord.gameType === '100ft_drill' ? "오늘 드릴에서 잘 된 부분이나 아쉬운 점을 기록하세요. (선택 사항)" : "오늘 연습에서 집중한 부분이나 깨달은 느낌을 자유롭게 적어주세요."}
-              value={newRecord.content}
-              onChange={(e) => setNewRecord({...newRecord, content: e.target.value})}
-              className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-sm min-h-[150px] resize-none"
-            />
-          </div>
 
           <button 
             onClick={handleSave}
@@ -1410,7 +1469,7 @@ function NavItem({ icon, label, isActive, onClick }) {
   return (
     <button 
       onClick={onClick}
-      className={`flex flex-col items-center gap-1 w-16 transition-colors ${isActive ? 'text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
+      className={`flex flex-col items-center gap-1 w-16 transition-colors ${isActive ? 'textemerald-600' : 'text-gray-400 hover:text-gray-600'}`}
     >
       <div className={`${isActive ? 'scale-110' : ''} transition-transform`}>
         {icon}
@@ -2398,7 +2457,7 @@ function AddScoreDetailedView({
                     <button
                       key={p}
                       onClick={() => updateNestedCurHole('par', p, 'score', p)}
-                      className={`w-8 h-8 rounded-md text-sm font-bold transition-all ${curHole.par === p ? 'bg-emerald-600 text-white' : 'textemerald-700 hover:bg-emerald-50'}`}
+                      className={`w-8 h-8 rounded-md text-sm font-bold transition-all ${curHole.par === p ? 'bg-emerald-600 text-white' : 'text-emerald-700 hover:bg-emerald-50'}`}
                     >
                       {p}
                     </button>

@@ -48,9 +48,9 @@ import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc, g
 
 // --- [Storage Mock to replace localStorage constraints] ---
 const memStorage = {
-  getItem: (key) => window[`__zg_${key}`] || null,
-  setItem: (key, value) => { window[`__zg_${key}`] = value; },
-  removeItem: (key) => { delete window[`__zg_${key}`]; }
+  getItem: (key) => { try { return localStorage.getItem(key); } catch(e) { return window[`__zg_${key}`] || null; } },
+  setItem: (key, value) => { try { localStorage.setItem(key, value); } catch(e) { window[`__zg_${key}`] = value; } },
+  removeItem: (key) => { try { localStorage.removeItem(key); } catch(e) { delete window[`__zg_${key}`]; } }
 };
 
 // --- [Firebase Initialization] ---
